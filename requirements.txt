@@ -1,0 +1,4 @@
+selenium
+webdriver-manager
+opencc-python-reimplemented
+natsort

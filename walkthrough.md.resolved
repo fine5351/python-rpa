@@ -1,0 +1,52 @@
+# Python RPA Video Uploader Walkthrough
+
+The transition from the Java Spring Boot RPA tool to a Python-based Command Line Interface (CLI) is complete. 
+
+## 1. Project Overview
+
+The project is structured under `d:\work\workspace\python\rpa` and consists of cleanly separated modules:
+- `main.py`: The entry point with `argparse` for CLI commands.
+- `requirements.txt`: Project dependencies (`selenium`, `webdriver-manager`, `opencc-python-reimplemented`, `natsort`).
+- `utils/webdriver_util.py`: Logic managing the Chrome Driver profile.
+- `services/`: Upload scripts for YouTube, TikTok, Bilibili, and Xiaohongshu.
+- `constants/`: Global configurations like standard hashtags.
+
+## 2. Improvements & Self-Check Highlights
+1. **Natural Sorting**: When uploading from a folder, the CLI uses the `natsort` library. This ensures that videos named `1.mp4`, `2.mp4` and `10.mp4` are uploaded in the correct numerical sequence, rather than falling back to alphabetical string sorting (`1.mp4`, `10.mp4`, `2.mp4`).
+2. **Simplified Execution**: Instead of running a persistent HTTP Server and firing API requests, you can natively orchestrate uploads from the shell (or scheduled tasks).
+3. **Traditional/Simplified Converter**: Replaced the Java `opencc4j` with the native Python `opencc-python-reimplemented` library to handle Bilibili and Xiaohongshu translation logic seamlessly.
+4. **Resiliency**: We maintained and translated the infinite wait loops used when interacting with the video upload forms exactly as written in the Java source. This ensures that the system waits robustly against unpredictable network conditions or site lag.
+5. **Session Lock Cleanup**: Recreated the Python process-killing flow via `subprocess.run(wmic...)` when a ChromeDriver locks up, preventing failed runs due to a dirty singleton lock.
+
+## 3. How to Use
+
+Activate the virtual environment:
+```bash
+cd D:\work\workspace\python\rpa
+venv\Scripts\activate
+```
+
+### Examples
+
+**1. Upload to YouTube:**
+```bash
+python main.py youtube --file "C:\videos\test.mp4" --title "My Video" --desc "A great video" --tags "gaming,fun" --playlist "Gameplay"
+```
+
+**2. Upload to Bilibili (with category):**
+```bash
+python main.py bilibili --file "C:\videos\test.mp4" --title "我的影片" --desc "這是一部好影片" --category "游戏"
+```
+
+**3. Sequential Multi-Platform Upload (Single File):**
+```bash
+python main.py multi --file "C:\videos\test.mp4" --title "My Video" --desc "A great video" --tags "gaming" --category "游戏"
+```
+
+**4. Batch Folder Upload (Multi-Platform):**
+```bash
+python main.py multi --folder "C:\videos\batch_uploads" --desc "Batch process video" --tags "gaming" --playlist "Daily Uploads"
+```
+
+> [!TIP]
+> You can run `python main.py --help` at any time to see the list of all available commands and flags. For example, to keep the browser open for debugging upon failure, append the `--keep-open` flag.
