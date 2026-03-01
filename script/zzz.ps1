@@ -1,0 +1,1 @@
+python main.py multi --folder "F:\2026-02-27-危局強襲戰" --desc "練度展示於結尾" --tags "絕區零,zenlesszonezero,危局強襲戰" --playlist "絕區零-高難"

@@ -1,0 +1,1 @@
+python main.py multi --folder "F:\天狼之章" --desc "劇情" --tags "原神,gensinimpact,天狼之章,法爾伽" --playlist "原神"

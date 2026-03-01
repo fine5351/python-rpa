@@ -139,4 +139,11 @@ def main():
         process_multi_platform_upload(file_path, args.desc, args.playlist, args.category, hashtags, args.keep_open)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("\n [系統] 接收到中斷指令 (Ctrl+C)，正在安全關閉瀏覽器並結束程式...")
+        try:
+            sys.exit(0)
+        except SystemExit:
+            os._exit(0)
