@@ -38,21 +38,12 @@ class YouTubeService:
 
     def upload_video(self, file_path: str, title: str, description: str, playlist: str, visibility: str,
                      hashtags: List[str], keep_open_on_failure: bool) -> bool:
-        final_description = self._build_description(title, description, hashtags)
         driver = None
         success = False
         try:
             driver = WebDriverUtil.initialize_driver()
-            self._navigate_to_studio(driver)
-            self._click_create_button(driver)
-            self._select_upload_option(driver)
-            self._upload_file(driver, file_path)
-            self._enter_title_and_description(driver, title, final_description)
-            self._select_playlist(driver, playlist)
-            self._set_kids_restriction(driver)
-            self._navigate_wizard_pages(driver)
-            self._set_visibility(driver, visibility)
-            self._save_and_close(driver)
+            self.start_upload_form(driver, file_path, title, description, playlist, visibility, hashtags)
+            self.wait_and_publish(driver)
             success = True
             return True
         except Exception as e:
@@ -65,6 +56,21 @@ class YouTubeService:
                     logger.info("Browser closed successfully.")
                 else:
                     logger.warning("Browser left open for debugging.")
+
+    def start_upload_form(self, driver, file_path: str, title: str, description: str, playlist: str, visibility: str, hashtags: List[str]):
+        final_description = self._build_description(title, description, hashtags)
+        self._navigate_to_studio(driver)
+        self._click_create_button(driver)
+        self._select_upload_option(driver)
+        self._upload_file(driver, file_path)
+        self._enter_title_and_description(driver, title, final_description)
+        self._select_playlist(driver, playlist)
+        self._set_kids_restriction(driver)
+        self._navigate_wizard_pages(driver)
+        self._set_visibility(driver, visibility)
+
+    def wait_and_publish(self, driver):
+        self._save_and_close(driver)
 
     def _build_description(self, title: str, description: str, hashtags: List[str]) -> str:
         if not description:
@@ -273,28 +279,33 @@ class YouTubeService:
         WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, f"//tp-yt-paper-radio-button[@name='{vis}']", "公開性選項").click()
 
     def _save_and_close(self, driver):
-        logger.info("Waiting for video processing to complete...")
-        while True:
+        logger.info("Attempting to publish directly without waiting for checks...")
+
+        done_btn_xpath = "//*[@id='done-button' and .//*[contains(translate(text(), ' ', ''), '發布') or contains(text(), 'Publish') or contains(text(), '儲存') or contains(text(), 'Save')]]"
+        try:
+            done_btn = WebDriverUtil.find_clickable_element(driver, "點擊發布/儲存按鈕", By.XPATH, done_btn_xpath, "發布/儲存按鈕")
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", done_btn)
+            done_btn.click()
+        except Exception as e:
+            logger.warning(f"Failed to find button with strict xpath, falling back to ID. Error: {e}")
+            done_btn = WebDriverUtil.find_clickable_element(driver, "點擊完成按鈕", By.ID, "done-button", "完成按鈕")
+            done_btn.click()
+        logger.info("Clicked Done/Publish button.")
+        
+        try:
+            logger.info("Checking for 'Publish anyway' popup...")
+            popup_btn_xpath = "//*[contains(text(), '仍要發布') or contains(text(), 'Publish anyway')]"
+            popup_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, popup_btn_xpath)))
             try:
-                status_elements = driver.find_elements(By.XPATH, "//ytcp-video-upload-progress")
-                is_complete = False
-                for status in status_elements:
-                    text = status.text
-                    logger.info(f"Current status: {text}")
-                    if any(c in text for c in ["Checks complete", "No issues found", "檢查完畢", "處理完畢", "無任何問題", "Upload complete", "上傳完畢"]) and "%" not in text:
-                        is_complete = True
-                        break
-
-                if is_complete:
-                    logger.info("Processing complete.")
-                    break
+                # Attempt to click parent button container if available
+                button_container = popup_btn.find_element(By.XPATH, "./ancestor::ytcp-button | ./ancestor::button")
+                button_container.click()
             except Exception:
-                pass
-            time.sleep(2)
+                popup_btn.click()
+            logger.info("Clicked 'Publish anyway' / '仍要發布' button.")
+        except Exception:
+            pass
 
-        done_btn = WebDriverUtil.find_clickable_element(driver, "點擊完成按鈕", By.ID, "done-button", "完成按鈕")
-        done_btn.click()
-        logger.info("Clicked Done button.")
         try:
             WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.ID, "close-button"))).click()
         except Exception:

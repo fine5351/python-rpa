@@ -20,24 +20,12 @@ class XiaohongshuService:
 
     def upload_video(self, file_path: str, title: str, description: str,
                      hashtags: List[str], keep_open_on_failure: bool) -> bool:
-        simplified_title = self.converter.convert(title) if title else ""
-        final_description = self._build_description(title, description, hashtags)
-        simplified_description = self.converter.convert(final_description)
-
-        logger.info(f"Simplified Title: {simplified_title}")
-        logger.info(f"Simplified Description: {simplified_description}")
-
         driver = None
         success = False
         try:
             driver = WebDriverUtil.initialize_driver()
-            self._navigate_to_creator_studio(driver)
-            self._upload_file(driver, file_path)
-            self._wait_for_upload_complete(driver)
-            self._set_title(driver, simplified_title)
-            self._set_description(driver, simplified_description)
-            self._wait_for_publish_complete(driver)
-            self._click_publish(driver)
+            self.start_upload_form(driver, file_path, title, description, hashtags)
+            self.wait_and_publish(driver)
             success = True
             return True
         except Exception as e:
@@ -50,6 +38,24 @@ class XiaohongshuService:
                     logger.info("Browser closed successfully.")
                 else:
                     logger.warning("Browser left open for debugging.")
+
+    def start_upload_form(self, driver, file_path: str, title: str, description: str, hashtags: List[str]):
+        simplified_title = self.converter.convert(title) if title else ""
+        final_description = self._build_description(title, description, hashtags)
+        simplified_description = self.converter.convert(final_description)
+
+        logger.info(f"Simplified Title: {simplified_title}")
+        logger.info(f"Simplified Description: {simplified_description}")
+
+        self._navigate_to_creator_studio(driver)
+        self._upload_file(driver, file_path)
+        self._set_title(driver, simplified_title)
+        self._set_description(driver, simplified_description)
+
+    def wait_and_publish(self, driver):
+        self._wait_for_upload_complete(driver)
+        self._wait_for_publish_complete(driver)
+        self._click_publish(driver)
 
     def _build_description(self, title: str, description: str, hashtags: List[str]) -> str:
         desc = ""
@@ -93,7 +99,7 @@ class XiaohongshuService:
                         break
 
                 if not is_uploading:
-                    success_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '上传成功') or contains(text(), 'Upload success') or contains(text(), '检测为高清视频')]")
+                    success_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '上传成功') or contains(text(), 'Upload success') or contains(text(), '检测为高清视频') or contains(text(), '视频分辨率较低')]")
                     if success_elements:
                         logger.info("Upload complete.")
                         break

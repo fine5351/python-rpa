@@ -17,18 +17,12 @@ class TikTokService:
 
     def upload_video(self, file_path: str, title: str, description: str, visibility: str,
                      hashtags: List[str], keep_open_on_failure: bool) -> bool:
-        final_caption = self._build_caption(title, description, hashtags)
-        logger.info(f"Processed Caption: {final_caption}")
-
         driver = None
         success = False
         try:
             driver = WebDriverUtil.initialize_driver()
-            self._navigate_to_upload(driver)
-            self._upload_file(driver, file_path)
-            self._wait_for_upload_complete(driver)
-            self._set_caption(driver, final_caption)
-            self._post_video(driver)
+            self.start_upload_form(driver, file_path, title, description, hashtags)
+            self.wait_and_publish(driver)
             success = True
             return True
         except Exception as e:
@@ -41,6 +35,18 @@ class TikTokService:
                     logger.info("Browser closed successfully.")
                 else:
                     logger.warning("Browser left open for debugging.")
+
+    def start_upload_form(self, driver, file_path: str, title: str, description: str, hashtags: List[str]):
+        final_caption = self._build_caption(title, description, hashtags)
+        logger.info(f"Processed Caption: {final_caption}")
+
+        self._navigate_to_upload(driver)
+        self._upload_file(driver, file_path)
+        self._set_caption(driver, final_caption)
+
+    def wait_and_publish(self, driver):
+        self._wait_for_upload_complete(driver)
+        self._post_video(driver)
 
     def _build_caption(self, title: str, description: str, hashtags: List[str]) -> str:
         caption = ""

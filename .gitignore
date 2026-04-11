@@ -4,3 +4,8 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+chrome*
+**/__pycache__/*
+**/__pycache__
+services/__pycache__/tiktok_service.cpython-313.pyc
+services/__pycache__/youtube_service.cpython-313.pyc

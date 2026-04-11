@@ -20,22 +20,12 @@ class BilibiliService:
 
     def upload_video(self, file_path: str, title: str, description: str, category: str,
                      hashtags: List[str], keep_open_on_failure: bool) -> bool:
-        simplified_title = self.converter.convert(title) if title else ""
-        final_description = self._build_description(title, description, hashtags)
-
         driver = None
         success = False
         try:
             driver = WebDriverUtil.initialize_driver()
-            self._navigate_to_upload(driver)
-            self._upload_file(driver, file_path)
-            self._wait_for_upload_complete(driver)
-            self._set_title(driver, simplified_title)
-            self._set_description(driver, final_description)
-            self._select_category(driver, category)
-            self._set_tags(driver, hashtags)
-            self._click_submit(driver)
-            self._wait_for_success(driver)
+            self.start_upload_form(driver, file_path, title, description, category, hashtags)
+            self.wait_and_publish(driver)
             success = True
             return True
         except Exception as e:
@@ -48,6 +38,23 @@ class BilibiliService:
                     logger.info("Browser closed successfully.")
                 else:
                     logger.warning("Browser left open for debugging.")
+
+    def start_upload_form(self, driver, file_path: str, title: str, description: str, category: str, hashtags: List[str]):
+        simplified_title = self.converter.convert(title) if title else ""
+        final_description = self._build_description(title, description, hashtags)
+        
+        self._navigate_to_upload(driver)
+        self._upload_file(driver, file_path)
+        # 移除前面的強制等待，讓讀條可以在背景進行
+        self._set_title(driver, simplified_title)
+        self._set_description(driver, final_description)
+        self._select_category(driver, category)
+        self._set_tags(driver, hashtags)
+
+    def wait_and_publish(self, driver):
+        self._wait_for_upload_complete(driver)
+        self._click_submit(driver)
+        self._wait_for_success(driver)
 
     def _build_description(self, title: str, description: str, hashtags: List[str]) -> str:
         desc = ""

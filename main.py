@@ -21,40 +21,66 @@ def get_filename_without_extension(file_path: str) -> str:
 
 def process_multi_platform_upload(file_path: str, description: str, playlist: str, bilibili_category: str, hashtags: list, keep_open: bool):
     title = get_filename_without_extension(file_path)
+    logger.info(f"Starting multi-platform tabbed upload for {title}...")
     
-    # 1. YouTube
-    logger.info(f"Starting YouTube upload for {title}...")
-    yt_service = YouTubeService()
-    yt_success = yt_service.upload_video(file_path, title, description, playlist, "PUBLIC", hashtags, keep_open)
-    if not yt_success:
-        logger.error(f"YouTube upload failed for {title}. Stopping sequence.")
-        return
+    driver = None
+    try:
+        from utils.webdriver_util import WebDriverUtil
+        driver = WebDriverUtil.initialize_driver()
+        platforms = []
 
-    # 2. Bilibili
-    logger.info(f"Starting Bilibili upload for {title}...")
-    bili_service = BilibiliService()
-    bili_success = bili_service.upload_video(file_path, title, description, bilibili_category, hashtags, keep_open)
-    if not bili_success:
-        logger.error(f"Bilibili upload failed for {title}. Stopping sequence.")
-        return
+        # 1. YouTube
+        logger.info(f"Starting YouTube form...")
+        window_yt = driver.current_window_handle
+        yt_service = YouTubeService()
+        platforms.append({"name": "YouTube", "handle": window_yt, "service": yt_service})
+        yt_service.start_upload_form(driver, file_path, title, description, playlist, "PUBLIC", hashtags)
 
-    # 3. Xiaohongshu
-    logger.info(f"Starting Xiaohongshu upload for {title}...")
-    xhs_service = XiaohongshuService()
-    xhs_success = xhs_service.upload_video(file_path, title, description, hashtags, keep_open)
-    if not xhs_success:
-        logger.error(f"Xiaohongshu upload failed for {title}. Stopping sequence.")
-        return
+        # 2. Bilibili
+        logger.info(f"Starting Bilibili form...")
+        driver.switch_to.new_window('tab')
+        window_bili = driver.current_window_handle
+        bili_service = BilibiliService()
+        platforms.append({"name": "Bilibili", "handle": window_bili, "service": bili_service})
+        bili_service.start_upload_form(driver, file_path, title, description, bilibili_category, hashtags)
 
-    # 4. TikTok
-    logger.info(f"Starting TikTok upload for {title}...")
-    tiktok_service = TikTokService()
-    tiktok_success = tiktok_service.upload_video(file_path, title, description, "PUBLIC", hashtags, keep_open)
-    if not tiktok_success:
-        logger.error(f"TikTok upload failed for {title}.")
-        return
+        # 3. Xiaohongshu
+        logger.info(f"Starting Xiaohongshu form...")
+        driver.switch_to.new_window('tab')
+        window_xhs = driver.current_window_handle
+        xhs_service = XiaohongshuService()
+        platforms.append({"name": "Xiaohongshu", "handle": window_xhs, "service": xhs_service})
+        xhs_service.start_upload_form(driver, file_path, title, description, hashtags)
 
-    logger.info(f"All platforms uploaded successfully for {title}!")
+        # 4. TikTok
+        logger.info(f"Starting TikTok form...")
+        driver.switch_to.new_window('tab')
+        window_tiktok = driver.current_window_handle
+        tiktok_service = TikTokService()
+        platforms.append({"name": "TikTok", "handle": window_tiktok, "service": tiktok_service})
+        tiktok_service.start_upload_form(driver, file_path, title, description, hashtags)
+
+        # Phase 2: Wait and publish
+        logger.info("All forms submitting. Now waiting for uploads to complete and publishing...")
+        for p in platforms:
+            try:
+                driver.switch_to.window(p["handle"])
+                logger.info(f"Switching to {p['name']} tab to finish publish...")
+                p["service"].wait_and_publish(driver)
+                logger.info(f"{p['name']} upload completed successfully!")
+            except Exception as e:
+                logger.error(f"Failed to publish for {p['name']}: {e}", exc_info=True)
+                
+        logger.info(f"All platforms processing finished for {title}!")
+    
+    except Exception as e:
+        logger.error(f"Error during multi tab process: {e}", exc_info=True)
+    finally:
+        if driver is not None:
+            if not keep_open:
+                driver.quit()
+            else:
+                logger.warning("Browser left open for debugging due to --keep-open.")
 
 def main():
     parser = argparse.ArgumentParser(description="Video RPA CLI Tool")
