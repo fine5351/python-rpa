@@ -51,12 +51,12 @@ def process_multi_platform_upload(file_path: str, description: str, playlist: st
         bili_service.start_upload_form(driver, file_path, title, description, bilibili_category, hashtags)
 
         # 3. Xiaohongshu
-        logger.info(f"Starting Xiaohongshu form...")
-        driver.switch_to.new_window('tab')
-        window_xhs = driver.current_window_handle
-        xhs_service = XiaohongshuService()
-        platforms.append({"name": "Xiaohongshu", "handle": window_xhs, "service": xhs_service})
-        xhs_service.start_upload_form(driver, file_path, title, description, hashtags)
+        # logger.info(f"Starting Xiaohongshu form...")
+        # driver.switch_to.new_window('tab')
+        # window_xhs = driver.current_window_handle
+        # xhs_service = XiaohongshuService()
+        # platforms.append({"name": "Xiaohongshu", "handle": window_xhs, "service": xhs_service})
+        # xhs_service.start_upload_form(driver, file_path, title, description, hashtags)
 
         # 4. TikTok
         logger.info(f"Starting TikTok form...")
