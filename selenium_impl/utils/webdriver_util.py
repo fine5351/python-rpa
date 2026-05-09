@@ -19,37 +19,121 @@ class WebDriverUtil:
     CHROME_DATA_DIR = "d:/work/workspace/java/rpa/chrome-data"
 
     @staticmethod
+    def _cleanup_chrome(data_dir: str):
+        try:
+            # Surgical kill: Only target chrome.exe using our specific data directory
+            # We use PowerShell to filter processes by command line arguments
+            norm_dir = data_dir.replace('\\', '\\\\') # Escape for WMI filter
+            alt_dir = data_dir.replace('\\', '/')
+            
+            ps_cmd = (
+                f'powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name = \'chrome.exe\'\\" | '
+                f'Where-Object {{ $_.CommandLine -like \'*--user-data-dir={norm_dir}*\' -or $_.CommandLine -like \'*--user-data-dir={alt_dir}*\' }} | '
+                f'Stop-Process -Force"'
+            )
+            subprocess.run(ps_cmd, shell=True, capture_output=True)
+            
+            # Kill any orphaned chromedrivers
+            subprocess.run('taskkill /F /IM chromedriver.exe /T', shell=True, capture_output=True)
+            
+            # Root lock files in the RPA-specific directory
+            lock_files = [
+                os.path.join(data_dir, "SingletonLock"),
+                os.path.join(data_dir, "DevToolsActivePort"),
+                os.path.join(data_dir, "Local State")
+            ]
+            
+            # Profile-specific lock files
+            profile_dir = os.path.join(data_dir, "Default")
+            if os.path.exists(profile_dir):
+                lock_files.extend([
+                    os.path.join(profile_dir, "LOCK"),
+                    os.path.join(profile_dir, "Parent.lock")
+                ])
+            
+            for f in lock_files:
+                if os.path.exists(f):
+                    try:
+                        os.remove(f)
+                        logger.info(f"Cleanup: Removed {os.path.basename(f)} from RPA profile.")
+                    except Exception as e:
+                        logger.debug(f"Could not remove {f}: {e}")
+            
+            time.sleep(0.3)
+        except Exception as ex:
+            logger.error(f"Failed to cleanup Chrome environment: {ex}")
+
+    @staticmethod
+    def get_chrome_version():
+        """Detect actual Chrome version on Windows."""
+        try:
+            import winreg
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Google\Chrome\BLBeacon")
+            version, _ = winreg.QueryValueEx(key, "version")
+            return version
+        except:
+            try:
+                # Fallback to file version
+                import subprocess
+                cmd = r'(Get-Item "C:\Program Files\Google\Chrome\Application\chrome.exe").VersionInfo.FileVersion'
+                res = subprocess.run(["powershell", "-Command", cmd], capture_output=True, text=True)
+                return res.stdout.strip()
+            except:
+                return None
+
+    @staticmethod
     def initialize_driver() -> webdriver.Chrome:
+        # Normalize path for Windows
+        data_dir = os.path.normpath(WebDriverUtil.CHROME_DATA_DIR)
+        
+        # Always cleanup before starting
+        WebDriverUtil._cleanup_chrome(data_dir)
+
         options = Options()
-        options.add_argument(f"user-data-dir={WebDriverUtil.CHROME_DATA_DIR}")
+        options.add_argument(f"--user-data-dir={data_dir}")
         options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
         options.add_argument("--no-sandbox")
+        options.add_argument("--disable-setuid-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         options.add_argument("--disable-gpu")
+        options.add_argument("--disable-software-rasterizer")
+        options.add_argument("--disable-gpu-compositing")
+        options.add_argument("--no-zygote")
         options.add_argument("--remote-allow-origins=*")
+        options.add_argument("--remote-debugging-port=9222")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--start-maximized")
+        
+        # Explicitly set binary location if standard path exists
+        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+        if os.path.exists(chrome_path):
+            options.binary_location = chrome_path
 
-        service = Service(ChromeDriverManager().install())
+        # Detect version to avoid WDM downloading wrong version
+        chrome_version = WebDriverUtil.get_chrome_version()
+        logger.info(f"Detected Chrome version: {chrome_version}")
+        
+        driver_path = ChromeDriverManager(driver_version=chrome_version).install() if chrome_version else ChromeDriverManager().install()
+        service = Service(driver_path)
 
         try:
             return webdriver.Chrome(service=service, options=options)
-        except SessionNotCreatedException as e:
-            logger.warning(f"Chrome Driver start failed. Attempting to kill locked Chrome instance...: {e}")
-            try:
-                # Same command as Java to terminate locked Chrome instance
-                cmd = f'wmic process where "name=\'chrome.exe\' and commandline like \'%chrome-data%\'" call terminate'
-                subprocess.run(cmd, shell=True, capture_output=True)
-                
-                # Try to remove the lock file
-                lock_file = os.path.join(WebDriverUtil.CHROME_DATA_DIR, "SingletonLock")
-                if os.path.exists(lock_file):
-                    os.remove(lock_file)
-                time.sleep(2)
-            except Exception as ex:
-                logger.error(f"Failed to cleanup locked Chrome profile: {ex}")
+        except Exception as e:
+            logger.warning(f"Chrome Driver start failed with persistent profile: {e}")
             
-            # Retry initializing driver
-            return webdriver.Chrome(service=service, options=options)
+            # Final attempt: Try with a TEMPORARY profile to see if the issue is profile corruption
+            temp_dir = os.path.join(os.environ.get('TEMP', 'C:\\temp'), 'chrome_rpa_temp')
+            if not os.path.exists(temp_dir): os.makedirs(temp_dir)
+            
+            logger.info(f"Attempting launch with TEMPORARY profile: {temp_dir}")
+            options.arguments[0] = f"--user-data-dir={temp_dir}"
+            
+            try:
+                return webdriver.Chrome(service=service, options=options)
+            except Exception as e2:
+                logger.error(f"Critical failure: Chrome cannot start even with a fresh profile. Error: {e2}")
+                raise e2
 
     @staticmethod
     def find_element(driver: webdriver.Chrome, step_name: str, by: str, value: str, element_name: str, timeout: int = 5) -> WebElement:

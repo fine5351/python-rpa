@@ -192,18 +192,37 @@ class TikTokService:
 
     def _post_video(self, driver):
         step_name = "點擊發佈"
-        post_selector = "//button[@data-e2e='post_video_button' and .//div[contains(@class, 'Button__content') and (contains(text(), '發佈') or contains(text(), 'Post'))]]"
-        post_button = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, post_selector, "發佈按鈕")
-        post_button.click()
-        logger.info("Clicked Post.")
-
+        # Refined selector for the primary Post button
+        post_selector = "//button[@data-e2e='post_video_button']"
+        
         try:
-            confirm_selector = "//button[contains(@class, 'TUXButton') and .//div[contains(@class, 'TUXButton-label') and (contains(text(), '立即發佈') or contains(text(), 'Post'))]]"
-            confirm_button = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, confirm_selector)))
-            confirm_button.click()
-            logger.info("Clicked Post Immediately.")
-        except Exception:
-            pass
+            post_button = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, post_selector, "發佈按鈕", timeout=10)
+            
+            # Try normal click first
+            try:
+                post_button.click()
+            except Exception as e:
+                logger.info(f"Normal click intercepted, trying JavaScript click: {e}")
+                driver.execute_script("arguments[0].click();", post_button)
+                
+            logger.info("Clicked Post button.")
+            
+            # Handle secondary confirmation popups (e.g., Copyright check, Post now)
+            time.sleep(2)
+            try:
+                # Look for TUXModal or any primary buttons in dialogs
+                confirm_btns = driver.find_elements(By.XPATH, "//div[contains(@class, 'TUXModal')]//button[contains(@class, 'type-primary')]")
+                for btn in confirm_btns:
+                    if btn.is_displayed():
+                        logger.info(f"Found confirmation modal button: {btn.text}")
+                        driver.execute_script("arguments[0].click();", btn)
+                        time.sleep(1)
+            except:
+                pass
+
+        except Exception as e:
+            logger.error(f"Failed to find or click Post button: {e}")
+            raise e
 
         logger.info("Waiting for post success...")
         try:
