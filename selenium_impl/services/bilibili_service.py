@@ -54,6 +54,7 @@ class BilibiliService:
     def wait_and_publish(self, driver):
         self._wait_for_upload_complete(driver)
         self._click_submit(driver)
+        self._handle_creation_declaration_modal(driver)
         self._wait_for_success(driver)
 
     def _build_description(self, title: str, description: str, hashtags: List[str]) -> str:
@@ -254,6 +255,19 @@ class BilibiliService:
             logger.info("Clicked Submit.")
         except Exception as e:
             logger.warning(f"Could not click Submit: {e}")
+
+    def _handle_creation_declaration_modal(self, driver):
+        try:
+            logger.info("檢查是否出現創作聲明對話框...")
+            btn_selector = "//button[.//span[contains(text(), '内容无需标注')]]"
+            btn = WebDriverWait(driver, 3).until(
+                EC.element_to_be_clickable((By.XPATH, btn_selector))
+            )
+            btn.click()
+            logger.info("已點擊 '内容无需标注'.")
+            time.sleep(1)
+        except Exception:
+            logger.info("未檢測到創作聲明對話框，或該對話框未顯示。")
 
     def _wait_for_success(self, driver):
         step_name = "等待發佈成功"

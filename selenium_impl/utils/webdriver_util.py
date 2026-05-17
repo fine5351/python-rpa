@@ -23,7 +23,7 @@ class WebDriverUtil:
         try:
             # Surgical kill: Only target chrome.exe using our specific data directory
             # We use PowerShell to filter processes by command line arguments
-            norm_dir = data_dir.replace('\\', '\\\\') # Escape for WMI filter
+            norm_dir = data_dir.replace('/', '\\') 
             alt_dir = data_dir.replace('\\', '/')
             
             ps_cmd = (
@@ -31,6 +31,7 @@ class WebDriverUtil:
                 f'Where-Object {{ $_.CommandLine -like \'*--user-data-dir={norm_dir}*\' -or $_.CommandLine -like \'*--user-data-dir={alt_dir}*\' }} | '
                 f'Stop-Process -Force"'
             )
+            logger.info(f"Cleanup: Killing existing Chrome processes using {data_dir}...")
             subprocess.run(ps_cmd, shell=True, capture_output=True)
             
             # Kill any orphaned chromedrivers
@@ -39,8 +40,7 @@ class WebDriverUtil:
             # Root lock files in the RPA-specific directory
             lock_files = [
                 os.path.join(data_dir, "SingletonLock"),
-                os.path.join(data_dir, "DevToolsActivePort"),
-                os.path.join(data_dir, "Local State")
+                os.path.join(data_dir, "DevToolsActivePort")
             ]
             
             # Profile-specific lock files
@@ -118,9 +118,11 @@ class WebDriverUtil:
         service = Service(driver_path)
 
         try:
-            return webdriver.Chrome(service=service, options=options)
+            driver = webdriver.Chrome(service=service, options=options)
+            logger.info(f"Successfully started Chrome with persistent profile: {data_dir}")
+            return driver
         except Exception as e:
-            logger.warning(f"Chrome Driver start failed with persistent profile: {e}")
+            logger.warning(f"Chrome Driver start FAILED with persistent profile: {e}")
             
             # Final attempt: Try with a TEMPORARY profile to see if the issue is profile corruption
             temp_dir = os.path.join(os.environ.get('TEMP', 'C:\\temp'), 'chrome_rpa_temp')

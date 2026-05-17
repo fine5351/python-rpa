@@ -1,4 +1,4 @@
-python ./selenium_impl/main.py multi --folder "F:\2026-03-30-虛構敘事-虛境成章" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,虛境成章" --playlist "崩壞:星穹鐵道-高難"
+python ./selenium_impl/main.py multi --folder "F:\2026-05-11-虛構敘事-造像立說" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,造像立說" --playlist "崩壞:星穹鐵道-高難"
 
 python ./selenium_impl/main.py multi --folder "F:\2026-03-26-混沌回憶-網路迷蹤" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,網路迷蹤" --playlist "崩壞:星穹鐵道-高難"
 
