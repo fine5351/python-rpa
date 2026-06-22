@@ -207,18 +207,49 @@ class TikTokService:
                 
             logger.info("Clicked Post button.")
             
-            # Handle secondary confirmation popups (e.g., Copyright check, Post now)
-            time.sleep(2)
-            try:
-                # Look for TUXModal or any primary buttons in dialogs
-                confirm_btns = driver.find_elements(By.XPATH, "//div[contains(@class, 'TUXModal')]//button[contains(@class, 'type-primary')]")
-                for btn in confirm_btns:
-                    if btn.is_displayed():
-                        logger.info(f"Found confirmation modal button: {btn.text}")
-                        driver.execute_script("arguments[0].click();", btn)
-                        time.sleep(1)
-            except:
-                pass
+            # Handle secondary confirmation popups (e.g., Copyright check, Post now, 立即發佈)
+            logger.info("Checking for any post confirmation popups...")
+            for i in range(5):
+                time.sleep(2)
+                try:
+                    # Check if post success indicator is already present (exit early)
+                    success_selector = "//div[contains(text(), 'Manage your posts') or contains(text(), 'View profile') or contains(text(), 'Upload another video') or contains(text(), '上傳另一支影片')]"
+                    if driver.find_elements(By.XPATH, success_selector):
+                        logger.info("Post success indicator detected early, exiting popup check loop.")
+                        break
+                except Exception:
+                    pass
+
+                popup_clicked = False
+                
+                # 1. Look for "立即發佈" button
+                try:
+                    publish_now_btns = driver.find_elements(By.XPATH, "//button[descendant::*[text()='立即發佈'] or contains(., '立即發佈')]")
+                    for btn in publish_now_btns:
+                        if btn.is_displayed():
+                            logger.info(f"Found '立即發佈' button: {btn.text or '立即發佈'}, clicking...")
+                            driver.execute_script("arguments[0].click();", btn)
+                            popup_clicked = True
+                            time.sleep(2)
+                            break
+                except Exception as e:
+                    logger.debug(f"Error checking '立即發佈' button: {e}")
+
+                if popup_clicked:
+                    continue
+
+                # 2. Look for general confirmation buttons (e.g., Copyright check, TUXModal)
+                try:
+                    confirm_btns = driver.find_elements(By.XPATH, "//div[contains(@class, 'TUXModal')]//button[contains(@class, 'type-primary') or contains(@class, 'TUXButton--primary')]")
+                    for btn in confirm_btns:
+                        if btn.is_displayed():
+                            logger.info(f"Found confirmation modal button: {btn.text}, clicking...")
+                            driver.execute_script("arguments[0].click();", btn)
+                            popup_clicked = True
+                            time.sleep(2)
+                            break
+                except Exception as e:
+                    logger.debug(f"Error checking general confirm button: {e}")
 
         except Exception as e:
             logger.error(f"Failed to find or click Post button: {e}")

@@ -47,6 +47,7 @@ class BilibiliService:
         self._upload_file(driver, file_path)
         # 移除前面的強制等待，讓讀條可以在背景進行
         self._set_title(driver, simplified_title)
+        self._set_creation_declaration(driver)
         self._set_description(driver, final_description)
         self._select_category(driver, category)
         self._set_tags(driver, hashtags)
@@ -54,7 +55,6 @@ class BilibiliService:
     def wait_and_publish(self, driver):
         self._wait_for_upload_complete(driver)
         self._click_submit(driver)
-        self._handle_creation_declaration_modal(driver)
         self._wait_for_success(driver)
 
     def _build_description(self, title: str, description: str, hashtags: List[str]) -> str:
@@ -256,18 +256,37 @@ class BilibiliService:
         except Exception as e:
             logger.warning(f"Could not click Submit: {e}")
 
-    def _handle_creation_declaration_modal(self, driver):
+    def _set_creation_declaration(self, driver):
         try:
-            logger.info("檢查是否出現創作聲明對話框...")
-            btn_selector = "//button[.//span[contains(text(), '内容无需标注')]]"
-            btn = WebDriverWait(driver, 3).until(
-                EC.element_to_be_clickable((By.XPATH, btn_selector))
-            )
-            btn.click()
-            logger.info("已點擊 '内容无需标注'.")
+            step_name = "設定創作聲明"
+            logger.info("嘗試開啟創作聲明下拉選單...")
+            
+            # 定位創作聲明輸入框 / 下拉選單觸發器
+            input_selector = "//input[@placeholder='请选择符合您视频内容的创作声明' or contains(@placeholder, '创作声明')]"
+            declaration_input = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, input_selector, "創作聲明輸入框")
+            
+            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", declaration_input)
+            time.sleep(0.5)
+            
+            declaration_input.click()
+            logger.info("已點擊創作聲明輸入框。")
             time.sleep(1)
-        except Exception:
-            logger.info("未檢測到創作聲明對話框，或該對話框未顯示。")
+            
+            # 定位並點擊 "内容无需标注" 選項
+            option_selector = "//li[contains(@class, 'bcc-option') and .//span[contains(text(), '内容无需标注')]]"
+            fallback_option_selector = "//li[contains(@class, 'bcc-option') and contains(., '内容无需标注')] | //span[contains(text(), '内容无需标注')]"
+            
+            try:
+                option = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, option_selector, "内容无需标注 選項")
+            except Exception:
+                logger.warning("未找到精確的 '内容无需标注' 列表項，嘗試備用選擇器...")
+                option = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, fallback_option_selector, "内容无需标注 選項備用")
+                
+            option.click()
+            logger.info("已選擇 '内容无需标注'。")
+            time.sleep(0.5)
+        except Exception as e:
+            logger.warning(f"設定創作聲明失敗: {e}")
 
     def _wait_for_success(self, driver):
         step_name = "等待發佈成功"
