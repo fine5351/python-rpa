@@ -14,7 +14,7 @@ from utils.webdriver_util import WebDriverUtil
 
 logger = logging.getLogger(__name__)
 
-class XiaohongshuService:
+class rednoteService:
     def __init__(self):
         self.converter = opencc.OpenCC('t2s')
 
@@ -29,7 +29,7 @@ class XiaohongshuService:
             success = True
             return True
         except Exception as e:
-            logger.error(f"Error during Xiaohongshu upload: {e}", exc_info=True)
+            logger.error(f"Error during rednote upload: {e}", exc_info=True)
             return False
         finally:
             if driver is not None:
@@ -77,8 +77,8 @@ class XiaohongshuService:
 
     def _navigate_to_creator_studio(self, driver):
         step_name = "前往上傳頁面"
-        logger.info(f"步驟 : {step_name}, 持續尋找中 https://creator.xiaohongshu.com/publish/publish...")
-        driver.get("https://creator.xiaohongshu.com/publish/publish")
+        logger.info(f"步驟 : {step_name}, 持續尋找中 https://creator.rednote.com/publish/publish...")
+        driver.get("https://creator.rednote.com/publish/publish")
 
     def _upload_file(self, driver, file_path: str):
         step_name = "上傳檔案"
@@ -136,34 +136,54 @@ class XiaohongshuService:
                 if part.startswith("#"):
                     try:
                         suggestion_selector = "//div[contains(@class, 'item') and .//span[contains(@class, 'name')] and .//span[contains(@class, 'num')]]"
-                        suggestions = WebDriverWait(driver, 5).until(EC.presence_of_all_elements_located((By.XPATH, suggestion_selector)))
+                        all_suggestions = WebDriverWait(driver, 5).until(EC.presence_of_all_elements_located((By.XPATH, suggestion_selector)))
+
+                        # Filter only displayed suggestions to avoid stale items
+                        suggestions = [item for item in all_suggestions if item.is_displayed()]
+                        logger.info(f"Found {len(suggestions)} visible suggestions.")
 
                         best_match = None
+                        exact_match = None
                         max_views = -1
+                        clean_part = part.replace("#", "").strip().lower()
 
                         for item in suggestions:
                             try:
-                                name = item.find_element(By.CLASS_NAME, "name").text
-                                num_text = item.find_element(By.CLASS_NAME, "num").text
+                                name_el = item.find_element(By.CLASS_NAME, "name")
+                                num_el = item.find_element(By.CLASS_NAME, "num")
+                                name = name_el.text.strip()
+                                num_text = num_el.text.strip()
 
-                                if name == part.replace("#", ""):
-                                    views = self._parse_views(num_text)
-                                    logger.info(f"瀏覽人數: {views}")
-                                    if views > max_views:
-                                        max_views = views
-                                        best_match = item
+                                clean_name = name.replace("#", "").strip().lower()
+                                views = self._parse_views(num_text)
+                                logger.info(f"Suggestion: '{name}' | Views: {views}")
+
+                                # Exact match check
+                                if clean_name == clean_part:
+                                    exact_match = item
+                                
+                                # Track highest views suggestion
+                                if views > max_views:
+                                    max_views = views
+                                    best_match = item
                             except Exception as ex:
-                                logger.warning(f"Could not parse views: {ex}")
+                                logger.warning(f"Could not parse suggestion item: {ex}")
 
-                        if best_match:
-                            best_match.click()
-                        elif suggestions:
-                            suggestions[0].click()
+                        # Click exact match if found, otherwise click highest views match, otherwise fallback to suggestions[0]
+                        target_to_click = exact_match if exact_match else best_match
+                        if not target_to_click and suggestions:
+                            target_to_click = suggestions[0]
 
+                        if target_to_click:
+                            logger.info(f"Selecting tag suggestion: {target_to_click.text.strip().replace(chr(10), ' ')}")
+                            target_to_click.click()
+                        else:
+                            logger.warning("No tag suggestions to select.")
+                        
                         desc_input.send_keys(" ")
 
-                    except Exception:
-                        pass
+                    except Exception as select_err:
+                        logger.warning(f"Tag selection failed: {select_err}")
             
             logger.info("Description set.")
         except Exception as e:
@@ -193,7 +213,7 @@ class XiaohongshuService:
                 progress_elements = driver.find_elements(By.XPATH, "//div[contains(text(), '上传中')]")
                 if progress_elements:
                     progress_text = progress_elements[0].text.strip()
-                    logger.info(f"Xiaohongshu publish progress: {progress_text}")
+                    logger.info(f"rednote publish progress: {progress_text}")
                     time.sleep(2)
                     continue
                 break
@@ -203,7 +223,8 @@ class XiaohongshuService:
 
     def _click_publish(self, driver):
         step_name = "點擊發佈按鈕"
-        selector = "//button[contains(@class, 'bg-red') and contains(., '发布')]"
+        # Primary: xhs-publish-btn web component. Fallback: old selectors (exact match to avoid top-left navigation button '发布笔记')
+        selector = "//xhs-publish-btn | //button[contains(@class, 'bg-red') and normalize-space(.)='发布'] | //span[text()='发布']"
 
         while True:
             try:
@@ -218,9 +239,28 @@ class XiaohongshuService:
 
                 if publish_btn:
                     driver.execute_script("arguments[0].scrollIntoView(true);", publish_btn)
-                    WebDriverWait(driver, 5).until(EC.element_to_be_clickable(publish_btn))
+                    time.sleep(1)
 
-                    publish_btn.click()
+                    try:
+                        if publish_btn.tag_name.lower() == "xhs-publish-btn":
+                            from selenium.webdriver.common.action_chains import ActionChains
+                            actions = ActionChains(driver)
+                            actions.move_to_element(publish_btn).move_by_offset(80, 0).click().perform()
+                            logger.info("Clicked xhs-publish-btn at offset (80, 0).")
+                        else:
+                            publish_btn.click()
+                    except Exception as click_err:
+                        logger.warning(f"Primary click failed: {click_err}. Trying fallbacks...")
+                        try:
+                            # Try clicking the parent if it's a span
+                            parent = publish_btn.find_element(By.XPATH, "..")
+                            driver.execute_script("arguments[0].click();", parent)
+                        except Exception:
+                            try:
+                                WebDriverUtil.dispatch_click_events(driver, publish_btn)
+                            except Exception:
+                                driver.execute_script("arguments[0].click();", publish_btn)
+                                
                     logger.info("Clicked Publish.")
 
                     try:
@@ -239,7 +279,14 @@ class XiaohongshuService:
                             logger.info("Publish button is gone. Assuming success.")
                             break
             except Exception:
-                pass
+                try:
+                    # Check if the page is already redirected/published successfully
+                    body_text = driver.find_element(By.TAG_NAME, "body").text
+                    if "上传视频" in body_text or "拖拽视频" in body_text or "草稿箱" in body_text:
+                        logger.info("Upload complete and page redirected to upload page. Assuming success.")
+                        break
+                except Exception:
+                    pass
 
             logger.info(f"步驟 : {step_name}, 持續尋找中 發佈按鈕...")
             time.sleep(2)

@@ -14,7 +14,7 @@ from natsort import natsorted
 from services.youtube_service import YouTubeService
 from services.bilibili_service import BilibiliService
 from services.tiktok_service import TikTokService
-from services.xiaohongshu_service import XiaohongshuService
+from services.rednote_service import rednoteService
 
 # Setup basic logging to console
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -50,13 +50,13 @@ def process_multi_platform_upload(file_path: str, description: str, playlist: st
         platforms.append({"name": "Bilibili", "handle": window_bili, "service": bili_service})
         bili_service.start_upload_form(driver, file_path, title, description, bilibili_category, hashtags)
 
-        # 3. Xiaohongshu
-        # logger.info(f"Starting Xiaohongshu form...")
-        # driver.switch_to.new_window('tab')
-        # window_xhs = driver.current_window_handle
-        # xhs_service = XiaohongshuService()
-        # platforms.append({"name": "Xiaohongshu", "handle": window_xhs, "service": xhs_service})
-        # xhs_service.start_upload_form(driver, file_path, title, description, hashtags)
+        # 3. rednote
+        logger.info(f"Starting rednote form...")
+        driver.switch_to.new_window('tab')
+        window_xhs = driver.current_window_handle
+        xhs_service = rednoteService()
+        platforms.append({"name": "rednote", "handle": window_xhs, "service": xhs_service})
+        xhs_service.start_upload_form(driver, file_path, title, description, hashtags)
 
         # 4. TikTok
         logger.info(f"Starting TikTok form...")
@@ -110,8 +110,8 @@ def main():
     parser_tiktok = subparsers.add_parser("tiktok", parents=[common_parser], help="Upload to TikTok")
     parser_tiktok.add_argument("--visibility", type=str, choices=["PUBLIC", "UNLISTED", "PRIVATE"], default="PUBLIC")
 
-    # Xiaohongshu Specific
-    parser_xhs = subparsers.add_parser("xiaohongshu", parents=[common_parser], help="Upload to Xiaohongshu")
+    # rednote Specific
+    parser_xhs = subparsers.add_parser("rednote", parents=[common_parser], help="Upload to rednote")
 
     # Bilibili Specific
     parser_bili = subparsers.add_parser("bilibili", parents=[common_parser], help="Upload to Bilibili")
@@ -161,8 +161,8 @@ def main():
     elif args.command == "tiktok":
         service = TikTokService()
         service.upload_video(file_path, title, args.desc, args.visibility, hashtags, args.keep_open)
-    elif args.command == "xiaohongshu":
-        service = XiaohongshuService()
+    elif args.command == "rednote":
+        service = rednoteService()
         service.upload_video(file_path, title, args.desc, hashtags, args.keep_open)
     elif args.command == "bilibili":
         service = BilibiliService()
