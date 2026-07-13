@@ -245,16 +245,31 @@ class BilibiliService:
             logger.warning(f"Could not set tags: {e}")
 
     def _click_submit(self, driver):
-        try:
-            step_name = "點擊發佈按鈕"
-            selector = "//span[contains(text(), '立即投稿') or contains(text(), 'Submit')]"
-            submit_btn = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, selector, "發佈按鈕")
+        step_name = "點擊發佈按鈕"
+        # 放寬 XPath 定位器，不再侷限於 span，以匹配 div、button 等其他標籤包裹文字的可能
+        selector = "//*[contains(text(), '立即投稿') or contains(text(), 'Submit')]"
+        submit_btn = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, selector, "發佈按鈕")
 
-            driver.execute_script("arguments[0].scrollIntoView(true);", submit_btn)
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", submit_btn)
+        time.sleep(0.5)
+        
+        try:
             submit_btn.click()
-            logger.info("Clicked Submit.")
+            logger.info("原生 click() 點擊發佈按鈕成功。")
+            return
         except Exception as e:
-            logger.warning(f"Could not click Submit: {e}")
+            logger.warning(f"原生 click() 失敗，嘗試事件分發 (dispatch_click_events): {e}")
+            
+        try:
+            WebDriverUtil.dispatch_click_events(driver, submit_btn)
+            logger.info("事件分發 (dispatch_click_events) 點擊發佈按鈕成功。")
+            return
+        except Exception as e:
+            logger.warning(f"事件分發點擊失敗，嘗試 JS click(): {e}")
+            
+        # 最後一搏，若仍失敗則拋出異常讓流程中斷
+        driver.execute_script("arguments[0].click();", submit_btn)
+        logger.info("JS click() 強制點擊發佈按鈕成功。")
 
     def _set_creation_declaration(self, driver):
         try:
