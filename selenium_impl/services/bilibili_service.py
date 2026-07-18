@@ -54,6 +54,7 @@ class BilibiliService:
 
     def wait_and_publish(self, driver):
         self._wait_for_upload_complete(driver)
+        self._select_cover(driver)
         self._click_submit(driver)
         self._wait_for_success(driver)
 
@@ -310,3 +311,33 @@ class BilibiliService:
         logger.info("Success indicator found.")
         logger.info("Waiting 2 seconds before closing...")
         time.sleep(2)
+
+    def _select_cover(self, driver):
+        try:
+            step_name = "選擇影片封面"
+            logger.info(f"步驟 : {step_name}, 尋找推薦封面...")
+            cover_selector = (By.CSS_SELECTOR, ".img-item-box.img-item-cover")
+            
+            # 等待推薦封面加載出來
+            cover_items = []
+            for _ in range(5):
+                cover_items = driver.find_elements(*cover_selector)
+                if cover_items:
+                    break
+                time.sleep(1)
+                
+            if cover_items:
+                driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", cover_items[0])
+                time.sleep(0.5)
+                
+                try:
+                    cover_items[0].click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", cover_items[0])
+                
+                logger.info("已成功選擇第一張推薦封面。")
+                time.sleep(1)
+            else:
+                logger.warning("未找到任何推薦封面項目 (img-item-cover)，跳過封面選擇。")
+        except Exception as e:
+            logger.warning(f"選擇封面失敗: {e}")
