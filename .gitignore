@@ -9,3 +9,9 @@ chrome*
 **/__pycache__
 services/__pycache__/tiktok_service.cpython-313.pyc
 services/__pycache__/youtube_service.cpython-313.pyc
+credentials.json
+token.json
+*.json.token
+proposed_plan.json
+
+
