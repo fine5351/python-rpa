@@ -1,5 +1,5 @@
-# python ./selenium_impl/main.py multi --folder "F:\4.3-沉於生者的忘川" --desc "劇情" --tags "崩壞星穹鐵道,honkaistarrail,如是,眾生歡笑不已" --playlist "崩壞:星穹鐵道"
+python ./selenium_impl/main.py multi --folder "F:\Download\鳴笛於歸寂之時" --desc "劇情" --tags "崩壞星穹鐵道,honkaistarrail,鳴笛於歸寂之時" --playlist "崩壞:星穹鐵道"
 # python ./selenium_impl/main.py multi --folder "F:\2026-05-11-虛構敘事-造像立說" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,造像立說" --playlist "崩壞:星穹鐵道-高難"
 # python ./selenium_impl/main.py multi --folder "F:\2026-07-06-忘卻之庭-學院怪談" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,學院怪談" --playlist "崩壞:星穹鐵道-高難"
 # python ./selenium_impl/main.py multi --folder "F:\2026-07-18-異相仲裁-塵世卷中" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,嗡鳴如笑" --playlist "崩壞:星穹鐵道-高難"
-python ./selenium_impl/main.py multi --folder "F:\Download\2026-07-20-末日幻影-兵鋒騎士-2" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,兵鋒騎士" --playlist "崩壞:星穹鐵道-高難"
+# python ./selenium_impl/main.py multi --folder "F:\Download\2026-07-20-末日幻影-兵鋒騎士-2" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,兵鋒騎士" --playlist "崩壞:星穹鐵道-高難"
