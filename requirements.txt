@@ -2,3 +2,9 @@ selenium
 webdriver-manager
 opencc-python-reimplemented
 natsort
+google-genai
+pyautogui
+pillow
+pynput
+mss
+python-dotenv

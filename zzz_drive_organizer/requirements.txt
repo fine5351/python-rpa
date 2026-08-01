@@ -1,0 +1,8 @@
+google-genai
+pyautogui
+pillow
+pynput
+mss
+python-dotenv
+pyyaml
+keyboard

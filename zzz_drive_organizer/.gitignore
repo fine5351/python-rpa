@@ -1,0 +1,20 @@
+# RPA Screenshots
+.screenshot/
+*.png
+*.jpg
+*.jpeg
+*.mkv
+*.mp4
+
+# Python & Environment
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Antigravity & IDE
+.system_generated/
+.idea/
+.vscode/
