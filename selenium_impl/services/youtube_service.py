@@ -6,6 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 from constants.auto_append_hashtag import AutoAppendHashtag
 from utils.webdriver_util import WebDriverUtil
@@ -108,7 +109,7 @@ class YouTubeService:
         try:
             popup_selector = (By.XPATH, "//yt-trust-tiers-wizard-dialog")
             try:
-                WebDriverWait(driver, 5).until(EC.presence_of_element_located(popup_selector))
+                WebDriverWait(driver, 3).until(EC.presence_of_element_located(popup_selector))
                 logger.info("'Trust Tiers' popup detected.")
 
                 confirm_btn_selector = (By.XPATH, "//yt-trust-tiers-wizard-dialog//ytcp-button[.//div[contains(@class, 'yt-spec-touch-feedback-shape__fill')]]")
@@ -118,8 +119,10 @@ class YouTubeService:
                 confirm_btn.click()
                 logger.info("Popup dismissed.")
                 time.sleep(1)
+            except TimeoutException:
+                logger.info("Popup did not appear.")
             except Exception as e:
-                logger.info(f"Popup did not appear or button not found: {e}")
+                logger.info(f"Popup button not found or unexpected issue: {e}")
         except Exception as e:
             logger.warning(f"Error handling popup: {e}")
 
