@@ -1,1 +1,0 @@
-pip install -r D:\work\workspace\python\rpa\zzz_drive_organizer\requirements.txt
