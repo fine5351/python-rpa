@@ -13,5 +13,6 @@ credentials.json
 token.json
 *.json.token
 proposed_plan.json
-
-
+.env
+.env.*
+!.env.example
