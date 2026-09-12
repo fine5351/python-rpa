@@ -1,41 +1,38 @@
 import logging
+import os
 import time
 from typing import List, Optional
 
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.support.ui import WebDriverWait
 
 from constants.auto_append_hashtag import AutoAppendHashtag
-from utils.webdriver_util import WebDriverUtil
+from selenium_impl.core.knowledge_store import KnowledgeStore
+from selenium_impl.core.smart_driver import SmartDriver
+from selenium_impl.core.vision_analyzer import VisionAnalyzer
+try:
+    from selenium_impl.utils.webdriver_util import WebDriverUtil
+except ImportError:
+    from utils.webdriver_util import WebDriverUtil
 
 logger = logging.getLogger(__name__)
 
+
 class YouTubeService:
-    FIND_ELEMENT_RECURSIVE_SCRIPT = """
-            function findElementRecursive(root, id, text, className, tagName) {
-              if (!root) return null;
-              if (id && root.id === id) return root;
-              if (tagName && root.tagName === tagName.toUpperCase()) return root;
-              if (className && root.classList && root.classList.contains(className)) return root;
-              if (text && root.innerText && root.innerText.includes(text)) return root;
-              if (root.shadowRoot) {
-                var child = findElementRecursive(root.shadowRoot, id, text, className, tagName);
-                if (child) return child;
-              }
-              if (root.children) {
-                for (var i = 0; i < root.children.length; i++) {
-                  var child = findElementRecursive(root.children[i], id, text, className, tagName);
-                  if (child) return child;
-                }
-              }
-              return null;
-            }
-            var app = document.querySelector('ytcp-app');
-            var startNode = app ? app : document.body;
-    """
+    """YouTube upload automation service powered by self-healing SmartDriver,
+    screen prompt detection, and KnowledgeStore evolution."""
+
+    def __init__(self, knowledge_file: Optional[str] = None):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        default_file = os.path.normpath(os.path.join(current_dir, "..", "knowledge", "youtube_knowledge.json"))
+        self.store = KnowledgeStore(knowledge_file or default_file)
+        self.vision = VisionAnalyzer()
+        self.smart_driver: Optional[SmartDriver] = None
+
+    def _ensure_smart_driver(self, driver):
+        if self.smart_driver is None or self.smart_driver.driver != driver:
+            self.smart_driver = SmartDriver(driver, self.store, self.vision)
 
     def upload_video(self, file_path: str, title: str, description: str, playlist: str, visibility: str,
                      hashtags: List[str], keep_open_on_failure: bool) -> bool:
@@ -43,6 +40,7 @@ class YouTubeService:
         success = False
         try:
             driver = WebDriverUtil.initialize_driver()
+            self._ensure_smart_driver(driver)
             self.start_upload_form(driver, file_path, title, description, playlist, visibility, hashtags)
             self.wait_and_publish(driver)
             success = True
@@ -58,7 +56,9 @@ class YouTubeService:
                 else:
                     logger.warning("Browser left open for debugging.")
 
-    def start_upload_form(self, driver, file_path: str, title: str, description: str, playlist: str, visibility: str, hashtags: List[str]):
+    def start_upload_form(self, driver, file_path: str, title: str, description: str, playlist: str,
+                          visibility: str, hashtags: List[str]):
+        self._ensure_smart_driver(driver)
         final_description = self._build_description(title, description, hashtags)
         self._navigate_to_studio(driver)
         self._click_create_button(driver)
@@ -71,6 +71,7 @@ class YouTubeService:
         self._set_visibility(driver, visibility)
 
     def wait_and_publish(self, driver):
+        self._ensure_smart_driver(driver)
         self._save_and_close(driver)
 
     def _build_description(self, title: str, description: str, hashtags: List[str]) -> str:
@@ -91,226 +92,107 @@ class YouTubeService:
         return description
 
     def _navigate_to_studio(self, driver):
-        step_name = "前往 YouTube Studio"
-        logger.info(f"步驟 : {step_name}, 持續尋找中 https://studio.youtube.com...")
+        logger.info("步驟 : 前往 YouTube Studio (https://studio.youtube.com)...")
         driver.get("https://studio.youtube.com")
-        try:
-            continue_button = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable(
-                    (By.XPATH, "//tp-yt-paper-button[@id='button' and .//div[contains(text(),'Continue')]]")
-                )
-            )
-            continue_button.click()
-        except Exception:
-            pass
+        self.smart_driver.check_and_dismiss_known_popups()
 
-    def _handle_trust_tiers_popup(self, driver):
-        logger.info("Checking for potential 'Trust Tiers' popup...")
-        try:
-            popup_selector = (By.XPATH, "//yt-trust-tiers-wizard-dialog")
+        # Handle optional 'Continue' button if present
+        continue_elem = self.smart_driver.find_smart_element("continue_button", custom_timeout=3)
+        if continue_elem:
             try:
-                WebDriverWait(driver, 3).until(EC.presence_of_element_located(popup_selector))
-                logger.info("'Trust Tiers' popup detected.")
-
-                confirm_btn_selector = (By.XPATH, "//yt-trust-tiers-wizard-dialog//ytcp-button[.//div[contains(@class, 'yt-spec-touch-feedback-shape__fill')]]")
-                confirm_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable(confirm_btn_selector))
-
-                logger.info("Found confirmation button, clicking...")
-                confirm_btn.click()
-                logger.info("Popup dismissed.")
-                time.sleep(1)
-            except TimeoutException:
-                logger.info("Popup did not appear.")
-            except Exception as e:
-                logger.info(f"Popup button not found or unexpected issue: {e}")
-        except Exception as e:
-            logger.warning(f"Error handling popup: {e}")
+                continue_elem.click()
+                logger.info("Clicked Studio Continue button.")
+            except Exception:
+                pass
 
     def _click_create_button(self, driver):
-        step_name = "點擊建立按鈕"
-        upload_button = self._find_upload_button(driver, step_name)
-        if upload_button:
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", upload_button)
-            upload_button = self._adjust_button_target(upload_button)
-            WebDriverUtil.dispatch_click_events(driver, upload_button)
-            logger.info("Dispatched click events to Upload button.")
-            self._handle_trust_tiers_popup(driver)
-        else:
-            raise RuntimeError("Could not find any Upload/Create button.")
-
-    def _find_upload_button(self, driver, step_name):
-        element_name = "建立按鈕"
-        while True:
-            try:
-                quick_action = self.FIND_ELEMENT_RECURSIVE_SCRIPT + """
-                        var qa = findElementRecursive(startNode, null, null, null, 'YTCP-QUICK-ACTIONS');
-                        return qa ? qa.querySelector('ytcp-icon-button') : null;
-                        """
-                btn = driver.execute_script(quick_action)
-                if btn: return btn
-
-                create_icon = self.FIND_ELEMENT_RECURSIVE_SCRIPT + """
-                        return findElementRecursive(startNode, 'create-icon', null, null, null);
-                        """
-                btn = driver.execute_script(create_icon)
-                if btn: return btn
-
-                class_search = self.FIND_ELEMENT_RECURSIVE_SCRIPT + """
-                        return findElementRecursive(startNode, null, null, 'yt-spec-touch-feedback-shape__fill', null);
-                        """
-                btn = driver.execute_script(class_search)
-                if btn: return btn
-            except Exception:
-                pass
-
-            logger.info(f"步驟 : {step_name}, 持續尋找中 {element_name}...")
-            time.sleep(2)
-
-    def _adjust_button_target(self, button):
-        tag_name = button.tag_name.upper()
-        if tag_name not in ["YTCP-BUTTON", "TP-YT-PAPER-ICON-BUTTON", "YTCP-ICON-BUTTON"]:
-            try:
-                parent = button.find_element(By.XPATH, "./..")
-                if parent:
-                    return parent
-            except Exception:
-                pass
-        return button
+        logger.info("步驟 : 點擊建立按鈕...")
+        self.smart_driver.check_and_dismiss_known_popups()
+        if not self.smart_driver.click_step("upload_button", timeout=10):
+            raise RuntimeError("無法定位或點擊建立/上傳按鈕 (Create Button)。")
 
     def _select_upload_option(self, driver):
-        step_name = "點擊上傳影片選項"
-        element_name = "上傳影片選項"
-
+        logger.info("步驟 : 選擇上傳影片選項...")
+        # Check if file input is already present without clicking menu
         try:
-            WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.XPATH, "//input[@type='file']")))
-            return
+            if driver.find_elements(By.XPATH, "//input[@type='file']"):
+                return
         except Exception:
             pass
 
-        while True:
-            try:
-                selector = (By.XPATH, "//tp-yt-paper-item[.//div[contains(text(),'Upload videos') or contains(text(),'上傳影片')]]")
-                upload_option = WebDriverWait(driver, 5).until(EC.presence_of_element_located(selector))
-                WebDriverUtil.dispatch_click_events(driver, upload_option)
-                return
-            except Exception:
-                script = self.FIND_ELEMENT_RECURSIVE_SCRIPT + """
-                        var opt = findElementRecursive(startNode, null, 'Upload videos', null, null);
-                        if (!opt) opt = findElementRecursive(startNode, null, '上傳影片', null, null);
-                        return opt;
-                        """
-                upload_option = driver.execute_script(script)
-                if upload_option:
-                    WebDriverUtil.dispatch_click_events(driver, upload_option)
-                    return
-
-            logger.info(f"步驟 : {step_name}, 持續尋找中 {element_name}...")
-            time.sleep(2)
+        self.smart_driver.click_step("select_upload_option", timeout=8)
 
     def _upload_file(self, driver, file_path: str):
         if not file_path:
             raise ValueError("File path cannot be null or empty")
-        step_name = "上傳檔案"
-        file_input = WebDriverUtil.find_element(driver, step_name, By.XPATH, "//input[@type='file']", "上傳檔案輸入框")
-        file_input.send_keys(file_path)
-        logger.info(f"Sent file path: {file_path}")
+        logger.info(f"步驟 : 上傳檔案 {file_path}...")
+        file_input = self.smart_driver.find_smart_element("file_input", timeout=12)
+        if file_input:
+            file_input.send_keys(file_path)
+            logger.info(f"Sent file path: {file_path}")
+        else:
+            raise RuntimeError("無法定位上傳檔案輸入框 (File input)。")
 
     def _enter_title_and_description(self, driver, title: str, description: str):
-        try:
-            if title:
-                step_name = "設定標題"
-                title_box = WebDriverUtil.find_element(driver, step_name, By.XPATH, "//ytcp-social-suggestions-textbox[@id='title-textarea']//div[@id='textbox']", "標題輸入框")
-                self._set_text(title_box, title)
-                logger.info(f"Set title: {title}")
-            
-            if description:
-                step_name = "設定說明"
-                desc_box = WebDriverUtil.find_element(driver, step_name, By.XPATH, "//ytcp-social-suggestions-textbox[@id='description-textarea']//div[@id='textbox']", "說明輸入框")
-                self._set_text(desc_box, description)
-                logger.info("Set description.")
-        except Exception as e:
-            logger.error(f"Error setting metadata: {e}")
+        if title:
+            logger.info(f"步驟 : 設定標題: {title}")
+            self.smart_driver.input_step("title_input", title)
 
-    def _set_text(self, element, text: str):
-        element.send_keys(Keys.CONTROL + "a")
-        element.send_keys(Keys.BACK_SPACE)
-        element.send_keys(text)
+        if description:
+            logger.info("步驟 : 設定說明內容...")
+            self.smart_driver.input_step("description_input", description)
 
     def _select_playlist(self, driver, playlist: str):
         if not playlist:
             return
+        logger.info(f"步驟 : 選擇播放清單: {playlist}")
         try:
-            open_step = "開啟播放清單選單"
-            trigger = WebDriverUtil.find_clickable_element(driver, open_step, By.XPATH, "//ytcp-text-dropdown-trigger//div[contains(@class, 'right-container')]", "播放清單選單")
+            self.smart_driver.click_step("playlist_trigger", timeout=8)
+            time.sleep(1)
 
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trigger)
-            driver.execute_script("arguments[0].click();", trigger)
-            logger.info("Clicked playlist dropdown trigger.")
-
-            select_step = "選擇播放清單"
-            item_selector = f"//li[contains(@class, 'ytcp-checkbox-group') and .//span[contains(@class, 'label-text') and normalize-space(text())='{playlist}']]//div[@id='checkbox-container']"
-            item = WebDriverUtil.find_clickable_element(driver, select_step, By.XPATH, item_selector, "播放清單項目")
-
+            item_selector = (
+                f"//li[contains(@class, 'ytcp-checkbox-group') and "
+                f".//span[contains(@class, 'label-text') and normalize-space(text())='{playlist}']]//div[@id='checkbox-container']"
+            )
+            item = WebDriverWait(driver, 6).until(EC.element_to_be_clickable((By.XPATH, item_selector)))
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", item)
             item.click()
             logger.info(f"Selected playlist: {playlist}")
 
-            done_step = "點擊完成按鈕"
-            done_btn = WebDriverUtil.find_clickable_element(driver, done_step, By.XPATH, "//ytcp-button[.//div[contains(text(), 'Done') or contains(text(), '完成')]]", "完成按鈕")
-            done_btn.click()
-            logger.info("Clicked Done.")
+            self.smart_driver.click_step("playlist_done_button", timeout=6)
         except Exception as e:
             logger.warning(f"Could not select playlist '{playlist}': {e}")
 
     def _set_kids_restriction(self, driver):
-        step_name = "設定兒童選項"
-        WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, "//tp-yt-paper-radio-button[@name='VIDEO_MADE_FOR_KIDS_NOT_MFK']", "兒童選項").click()
+        logger.info("步驟 : 設定兒童限制選項 (非兒童專屬)...")
+        self.smart_driver.click_step("kids_restriction_not_for_kids", timeout=10)
 
     def _navigate_wizard_pages(self, driver):
-        step_name = "點擊下一步按鈕"
-        for _ in range(3):
-            WebDriverUtil.find_clickable_element(driver, step_name, By.ID, "next-button", "下一步按鈕").click()
+        logger.info("步驟 : 推進嚮導頁面...")
+        for i in range(3):
+            logger.info(f"推進嚮導步驟 {i + 1}/3...")
+            time.sleep(1)
+            self.smart_driver.click_step("next_button", timeout=10)
 
     def _set_visibility(self, driver, visibility: str):
-        vis = "PRIVATE"
-        if visibility and visibility.upper() == "PUBLIC":
-            vis = "PUBLIC"
-        elif visibility and visibility.upper() == "UNLISTED":
-            vis = "UNLISTED"
+        vis = "PUBLIC"
+        if visibility and visibility.upper() in ["PUBLIC", "UNLISTED", "PRIVATE"]:
+            vis = visibility.upper()
 
-        step_name = "設定公開性"
-        WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, f"//tp-yt-paper-radio-button[@name='{vis}']", "公開性選項").click()
+        step_id = f"visibility_{vis.lower()}"
+        logger.info(f"步驟 : 設定公開性為 {vis} (step_id: {step_id})...")
+        self.smart_driver.click_step(step_id, timeout=8)
 
     def _save_and_close(self, driver):
-        logger.info("Attempting to publish directly without waiting for checks...")
+        logger.info("步驟 : 點擊發布/完成按鈕...")
+        self.smart_driver.check_and_dismiss_known_popups()
+        self.smart_driver.click_step("done_button", timeout=15)
+        logger.info("已點擊 Done/Publish 按鈕。")
 
-        done_btn_xpath = "//*[@id='done-button' and .//*[contains(translate(text(), ' ', ''), '發布') or contains(text(), 'Publish') or contains(text(), '儲存') or contains(text(), 'Save')]]"
-        try:
-            done_btn = WebDriverUtil.find_clickable_element(driver, "點擊發布/儲存按鈕", By.XPATH, done_btn_xpath, "發布/儲存按鈕")
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", done_btn)
-            done_btn.click()
-        except Exception as e:
-            logger.warning(f"Failed to find button with strict xpath, falling back to ID. Error: {e}")
-            done_btn = WebDriverUtil.find_clickable_element(driver, "點擊完成按鈕", By.ID, "done-button", "完成按鈕")
-            done_btn.click()
-        logger.info("Clicked Done/Publish button.")
-        
-        try:
-            logger.info("Checking for 'Publish anyway' popup...")
-            popup_btn_xpath = "//*[contains(text(), '仍要發布') or contains(text(), 'Publish anyway')]"
-            popup_btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, popup_btn_xpath)))
-            try:
-                # Attempt to click parent button container if available
-                button_container = popup_btn.find_element(By.XPATH, "./ancestor::ytcp-button | ./ancestor::button")
-                button_container.click()
-            except Exception:
-                popup_btn.click()
-            logger.info("Clicked 'Publish anyway' / '仍要發布' button.")
-        except Exception:
-            pass
+        # Check for potential 'Publish anyway' popup
+        time.sleep(2)
+        self.smart_driver.check_and_dismiss_known_popups()
 
-        try:
-            WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.ID, "close-button"))).click()
-        except Exception:
-            pass
-        logger.info("Video uploaded successfully!")
+        # Dismiss final success dialog if present
+        self.smart_driver.click_step("close_dialog_button", timeout=15)
+        logger.info("YouTube 影片發布流程全部完成！")

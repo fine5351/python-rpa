@@ -1,19 +1,39 @@
 import logging
-import time
+import os
 import re
+import time
 from typing import List, Optional
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 from constants.auto_append_hashtag import AutoAppendHashtag
-from utils.webdriver_util import WebDriverUtil
+from selenium_impl.core.knowledge_store import KnowledgeStore
+from selenium_impl.core.smart_driver import SmartDriver
+from selenium_impl.core.vision_analyzer import VisionAnalyzer
+try:
+    from selenium_impl.utils.webdriver_util import WebDriverUtil
+except ImportError:
+    from utils.webdriver_util import WebDriverUtil
 
 logger = logging.getLogger(__name__)
 
+
 class TikTokService:
+    """TikTok video upload service integrated with SmartDriver self-healing."""
+
+    def __init__(self, knowledge_file: Optional[str] = None):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        default_file = os.path.normpath(os.path.join(current_dir, "..", "knowledge", "tiktok_knowledge.json"))
+        self.store = KnowledgeStore(knowledge_file or default_file)
+        self.vision = VisionAnalyzer()
+        self.smart_driver: Optional[SmartDriver] = None
+
+    def _ensure_smart_driver(self, driver):
+        if self.smart_driver is None or self.smart_driver.driver != driver:
+            self.smart_driver = SmartDriver(driver, self.store, self.vision)
 
     def upload_video(self, file_path: str, title: str, description: str, visibility: str,
                      hashtags: List[str], keep_open_on_failure: bool) -> bool:
@@ -21,6 +41,7 @@ class TikTokService:
         success = False
         try:
             driver = WebDriverUtil.initialize_driver()
+            self._ensure_smart_driver(driver)
             self.start_upload_form(driver, file_path, title, description, hashtags)
             self.wait_and_publish(driver)
             success = True
@@ -37,6 +58,7 @@ class TikTokService:
                     logger.warning("Browser left open for debugging.")
 
     def start_upload_form(self, driver, file_path: str, title: str, description: str, hashtags: List[str]):
+        self._ensure_smart_driver(driver)
         final_caption = self._build_caption(title, description, hashtags)
         logger.info(f"Processed Caption: {final_caption}")
 
@@ -45,6 +67,7 @@ class TikTokService:
         self._set_caption(driver, final_caption)
 
     def wait_and_publish(self, driver):
+        self._ensure_smart_driver(driver)
         self._wait_for_upload_complete(driver)
         self._post_video(driver)
 
@@ -71,50 +94,58 @@ class TikTokService:
         return caption.strip()
 
     def _navigate_to_upload(self, driver):
-        step_name = "前往上傳頁面"
-        logger.info(f"步驟 : {step_name}, 持續尋找中 https://www.tiktok.com/tiktokstudio/upload...")
+        logger.info("步驟 : 前往上傳頁面 (https://www.tiktok.com/tiktokstudio/upload)...")
         driver.get("https://www.tiktok.com/tiktokstudio/upload")
+        self.smart_driver.check_and_dismiss_known_popups()
 
     def _upload_file(self, driver, file_path: str):
-        step_name = "上傳檔案"
-        file_input = WebDriverUtil.find_element(driver, step_name, By.XPATH, "//input[@type='file']", "上傳按鈕")
-        file_input.send_keys(file_path)
+        logger.info(f"步驟 : 上傳檔案 {file_path}...")
+        self.smart_driver.check_and_dismiss_known_popups()
+        file_input = self.smart_driver.find_smart_element("file_input", timeout=15)
+        if file_input:
+            file_input.send_keys(file_path)
+            logger.info("檔案路徑已送出。")
+        else:
+            raise RuntimeError("無法定位 TikTok 檔案上傳輸入框。")
 
     def _wait_for_upload_complete(self, driver):
-        step_name = "等待上傳完成"
-        upload_complete = False
+        logger.info("步驟 : 等待影片上傳完成...")
+        start_time = time.time()
+        timeout = 600  # Up to 10 minutes
 
-        while not upload_complete:
-            try:
-                is_uploading = False
-                progress_elements = driver.find_elements(By.XPATH, "//div[contains(text(), '%')]")
-                for el in progress_elements:
-                    text = el.text
-                    if re.match(r".*\d+%.*", text) and "100%" not in text:
-                        is_uploading = True
-                        logger.info(f"Upload progress: {text}")
-                        break
-                
-                if not is_uploading:
-                    success_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Uploaded') or contains(text(), '上傳完畢') or contains(text(), '已上傳')]")
-                    if success_elements:
-                        logger.info(f"Upload complete indicator found: {success_elements[0].text}")
-                        upload_complete = True
-                        break
-                
-                time.sleep(1)
-            except Exception:
-                logger.info(f"步驟 : {step_name}, 持續尋找中 上傳完成標誌...")
-                time.sleep(1)
-        
-        if upload_complete:
-            logger.info("Upload complete, waiting 3 seconds for UI to stabilize...")
-            time.sleep(3)
+        while time.time() - start_time < timeout:
+            is_uploading = False
+            progress_elements = driver.find_elements(By.XPATH, "//div[contains(text(), '%')]")
+            for el in progress_elements:
+                text = el.text
+                if re.match(r".*\d+%.*", text) and "100%" not in text:
+                    is_uploading = True
+                    logger.info(f"TikTok 上傳進度: {text}")
+                    break
+
+            if not is_uploading:
+                success_elements = driver.find_elements(
+                    By.XPATH, "//*[contains(text(), 'Uploaded') or contains(text(), '上傳完畢') or contains(text(), '已上傳')]"
+                )
+                if success_elements:
+                    logger.info(f"Upload complete indicator found: {success_elements[0].text}")
+                    break
+
+            time.sleep(2)
+
+        logger.info("Upload complete, waiting 3 seconds for UI to stabilize...")
+        time.sleep(3)
 
     def _set_caption(self, driver, caption: str):
+        if not caption:
+            return
         try:
-            step_name = "設定標題"
-            editor = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, "//div[@contenteditable='true']", "標題輸入框")
+            logger.info("步驟 : 設定文案內容與標籤...")
+            editor = self.smart_driver.find_smart_element("caption_editor", timeout=15, clickable=True)
+            if not editor:
+                logger.warning("未找到文案輸入框，跳過文案設定。")
+                return
+
             editor.click()
             editor.send_keys(Keys.CONTROL + "a")
             editor.send_keys(Keys.BACK_SPACE)
@@ -122,145 +153,90 @@ class TikTokService:
             parts = caption.split(" ")
             for part in parts:
                 editor.send_keys(part)
-                time.sleep(2)
+                time.sleep(1.5)
                 if part.startswith("#"):
                     try:
-                        logger.info("尋找 標籤建議 位置中")
-                        WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'mention-list')]")))
-                        logger.info("已找到 標籤建議列表，開始尋找最佳匹配...")
-                        
-                        suggestions = driver.find_elements(By.XPATH, "//div[contains(@class, 'hashtag-suggestion-item')]")
-                        logger.info(f"Found {len(suggestions)} suggestions")
+                        mention_lists = driver.find_elements(By.XPATH, "//div[contains(@class, 'mention-list')]")
+                        if mention_lists:
+                            suggestions = driver.find_elements(By.XPATH, "//div[contains(@class, 'hashtag-suggestion-item')]")
+                            target_tag = part.replace("#", "")
+                            best_match = None
+                            max_count = -1
 
-                        target_tag = part.replace("#", "")
-                        best_match = None
-                        max_count = -1
+                            for suggestion in suggestions:
+                                try:
+                                    topic_el = suggestion.find_element(By.XPATH, ".//span[contains(@class, 'hash-tag-topic')]")
+                                    count_el = suggestion.find_element(By.XPATH, ".//span[contains(@class, 'hash-tag-view-count')]")
+                                    tag_name = topic_el.text.strip()
+                                    count_text = count_el.text.strip()
+                                    count = self._parse_count(count_text)
 
-                        for suggestion in suggestions:
-                            try:
-                                topic_el = suggestion.find_element(By.XPATH, ".//span[contains(@class, 'hash-tag-topic')]")
-                                count_el = suggestion.find_element(By.XPATH, ".//span[contains(@class, 'hash-tag-view-count')]")
+                                    if tag_name.replace("#", "").lower() == target_tag.lower():
+                                        if count > max_count:
+                                            max_count = count
+                                            best_match = suggestion
+                                except Exception:
+                                    pass
 
-                                tag_name = topic_el.text.strip()
-                                count_text = count_el.text.strip()
-
-                                count = 0
-                                s = re.sub(r'[^0-9.KMB]', '', count_text.upper())
-                                if s:
-                                    multiplier = 1
-                                    if s.endswith("K"):
-                                        multiplier = 1_000
-                                        s = s[:-1]
-                                    elif s.endswith("M"):
-                                        multiplier = 1_000_000
-                                        s = s[:-1]
-                                    elif s.endswith("B"):
-                                        multiplier = 1_000_000_000
-                                        s = s[:-1]
-                                    try:
-                                        count = int(float(s) * multiplier)
-                                    except Exception:
-                                        pass
-
-                                current_tag_clean = tag_name.replace("#", "")
-                                if current_tag_clean.lower() == target_tag.lower():
-                                    if count > max_count:
-                                        max_count = count
-                                        best_match = suggestion
-                                        logger.info(f"New Best Match Found: {tag_name} with {count} views")
-                            except Exception as e:
-                                logger.warning(f"Error parsing suggestion item: {e}")
-
-                        if best_match:
-                            topic = best_match.find_element(By.XPATH, ".//span[contains(@class, 'hash-tag-topic')]").text
-                            logger.info(f"執行 點擊最佳匹配建議 操作 (Tag: {topic}, Views: {max_count})")
-                            best_match.click()
-                        else:
-                            logger.info("未找到精確匹配，嘗試點擊第一個建議")
-                            if suggestions:
+                            if best_match:
+                                best_match.click()
+                            elif suggestions:
                                 suggestions[0].click()
-                            else:
-                                driver.find_element(By.XPATH, "//div[contains(@class, 'mention-list')]//div[1]").click()
-                    except Exception:
-                        pass
-                
+                    except Exception as e:
+                        logger.debug(f"標籤彈出選單處理略過: {e}")
+
                 editor.send_keys(" ")
-            
+
             logger.info("Caption set.")
         except Exception as e:
             logger.warning(f"Could not set caption: {e}")
 
-    def _post_video(self, driver):
-        step_name = "點擊發佈"
-        # Refined selector for the primary Post button
-        post_selector = "//button[@data-e2e='post_video_button']"
-        
+    def _parse_count(self, count_text: str) -> int:
+        s = re.sub(r'[^0-9.KMB]', '', count_text.upper())
+        if not s:
+            return 0
+        multiplier = 1
+        if s.endswith("K"):
+            multiplier = 1_000
+            s = s[:-1]
+        elif s.endswith("M"):
+            multiplier = 1_000_000
+            s = s[:-1]
+        elif s.endswith("B"):
+            multiplier = 1_000_000_000
+            s = s[:-1]
         try:
-            post_button = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, post_selector, "發佈按鈕", timeout=10)
-            
-            # Try normal click first
-            try:
-                post_button.click()
-            except Exception as e:
-                logger.info(f"Normal click intercepted, trying JavaScript click: {e}")
-                driver.execute_script("arguments[0].click();", post_button)
-                
-            logger.info("Clicked Post button.")
-            
-            # Handle secondary confirmation popups (e.g., Copyright check, Post now, 立即發佈)
-            logger.info("Checking for any post confirmation popups...")
-            for i in range(5):
-                time.sleep(2)
-                try:
-                    # Check if post success indicator is already present (exit early)
-                    success_selector = "//div[contains(text(), 'Manage your posts') or contains(text(), 'View profile') or contains(text(), 'Upload another video') or contains(text(), '上傳另一支影片')]"
-                    if driver.find_elements(By.XPATH, success_selector):
-                        logger.info("Post success indicator detected early, exiting popup check loop.")
-                        break
-                except Exception:
-                    pass
-
-                popup_clicked = False
-                
-                # 1. Look for "立即發佈" button
-                try:
-                    publish_now_btns = driver.find_elements(By.XPATH, "//button[descendant::*[text()='立即發佈'] or contains(., '立即發佈')]")
-                    for btn in publish_now_btns:
-                        if btn.is_displayed():
-                            logger.info(f"Found '立即發佈' button: {btn.text or '立即發佈'}, clicking...")
-                            driver.execute_script("arguments[0].click();", btn)
-                            popup_clicked = True
-                            time.sleep(2)
-                            break
-                except Exception as e:
-                    logger.debug(f"Error checking '立即發佈' button: {e}")
-
-                if popup_clicked:
-                    continue
-
-                # 2. Look for general confirmation buttons (e.g., Copyright check, TUXModal)
-                try:
-                    confirm_btns = driver.find_elements(By.XPATH, "//div[contains(@class, 'TUXModal')]//button[contains(@class, 'type-primary') or contains(@class, 'TUXButton--primary')]")
-                    for btn in confirm_btns:
-                        if btn.is_displayed():
-                            logger.info(f"Found confirmation modal button: {btn.text}, clicking...")
-                            driver.execute_script("arguments[0].click();", btn)
-                            popup_clicked = True
-                            time.sleep(2)
-                            break
-                except Exception as e:
-                    logger.debug(f"Error checking general confirm button: {e}")
-
-        except Exception as e:
-            logger.error(f"Failed to find or click Post button: {e}")
-            raise e
-
-        logger.info("Waiting for post success...")
-        try:
-            success_selector = "//div[contains(text(), 'Manage your posts') or contains(text(), 'View profile') or contains(text(), 'Upload another video') or contains(text(), '上傳另一支影片')]"
-            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, success_selector)))
-            logger.info("Post success indicator found.")
+            return int(float(s) * multiplier)
         except Exception:
-            logger.warning("Explicit success message not found, checking URL...")
+            return 0
 
-        time.sleep(3)
+    def _post_video(self, driver):
+        logger.info("步驟 : 點擊發佈按鈕...")
+        self.smart_driver.check_and_dismiss_known_popups()
+
+        post_button = self.smart_driver.find_smart_element("post_button", timeout=15, clickable=True)
+        if not post_button:
+            raise RuntimeError("無法定位 TikTok 發佈按鈕。")
+
+        try:
+            post_button.click()
+        except Exception as e:
+            logger.info(f"Normal click intercepted, trying JS click: {e}")
+            driver.execute_script("arguments[0].click();", post_button)
+
+        logger.info("Clicked Post button. Checking for any post confirmation popups...")
+
+        for _ in range(6):
+            time.sleep(2)
+            # Check if post success indicator is already present
+            success_elem = self.smart_driver.find_smart_element("success_indicator", timeout=2)
+            if success_elem:
+                logger.info("檢測到發佈成功標誌！")
+                return
+
+            # Check and dismiss known confirmation modals (like 立即發佈, TUXModal)
+            handled = self.smart_driver.check_and_dismiss_known_popups()
+            if handled:
+                logger.info("已自動確認排除發佈彈窗。")
+
+        logger.info("TikTok 發佈流程全部完成！")

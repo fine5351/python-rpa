@@ -1,22 +1,41 @@
 import logging
-import time
+import os
 import re
+import time
 from typing import List, Optional
 
 import opencc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 from constants.auto_append_hashtag import AutoAppendHashtag
-from utils.webdriver_util import WebDriverUtil
+from selenium_impl.core.knowledge_store import KnowledgeStore
+from selenium_impl.core.smart_driver import SmartDriver
+from selenium_impl.core.vision_analyzer import VisionAnalyzer
+try:
+    from selenium_impl.utils.webdriver_util import WebDriverUtil
+except ImportError:
+    from utils.webdriver_util import WebDriverUtil
 
 logger = logging.getLogger(__name__)
 
+
 class BilibiliService:
-    def __init__(self):
+    """Bilibili video upload service integrated with SmartDriver self-healing."""
+
+    def __init__(self, knowledge_file: Optional[str] = None):
         self.converter = opencc.OpenCC('t2s')
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        default_file = os.path.normpath(os.path.join(current_dir, "..", "knowledge", "bilibili_knowledge.json"))
+        self.store = KnowledgeStore(knowledge_file or default_file)
+        self.vision = VisionAnalyzer()
+        self.smart_driver: Optional[SmartDriver] = None
+
+    def _ensure_smart_driver(self, driver):
+        if self.smart_driver is None or self.smart_driver.driver != driver:
+            self.smart_driver = SmartDriver(driver, self.store, self.vision)
 
     def upload_video(self, file_path: str, title: str, description: str, category: str,
                      hashtags: List[str], keep_open_on_failure: bool) -> bool:
@@ -24,6 +43,7 @@ class BilibiliService:
         success = False
         try:
             driver = WebDriverUtil.initialize_driver()
+            self._ensure_smart_driver(driver)
             self.start_upload_form(driver, file_path, title, description, category, hashtags)
             self.wait_and_publish(driver)
             success = True
@@ -40,19 +60,18 @@ class BilibiliService:
                     logger.warning("Browser left open for debugging.")
 
     def start_upload_form(self, driver, file_path: str, title: str, description: str, category: str, hashtags: List[str]):
+        self._ensure_smart_driver(driver)
         simplified_title = self.converter.convert(title) if title else ""
         final_description = self._build_description(title, description, hashtags)
         
         self._navigate_to_upload(driver)
         self._upload_file(driver, file_path)
-        # 移除前面的強制等待，讓讀條可以在背景進行
         self._set_title(driver, simplified_title)
-        self._set_creation_declaration(driver)
         self._set_description(driver, final_description)
-        self._select_category(driver, category)
         self._set_tags(driver, hashtags)
 
     def wait_and_publish(self, driver):
+        self._ensure_smart_driver(driver)
         self._wait_for_upload_complete(driver)
         self._select_cover(driver)
         self._click_submit(driver)
@@ -79,265 +98,236 @@ class BilibiliService:
         return self.converter.convert(desc.strip())
 
     def _navigate_to_upload(self, driver):
-        step_name = "前往上傳頁面"
-        logger.info(f"步驟 : {step_name}, 持續尋找中 https://member.bilibili.com/platform/upload/video/frame...")
+        logger.info("步驟 : 前往上傳頁面 (https://member.bilibili.com/platform/upload/video/frame)...")
         driver.get("https://member.bilibili.com/platform/upload/video/frame")
+        self.smart_driver.check_and_dismiss_known_popups()
 
     def _upload_file(self, driver, file_path: str):
-        step_name = "上傳檔案"
-        while True:
-            try:
-                time.sleep(3)
-                global_input_selector = (By.XPATH, "//input[@type='file']")
-                inputs = driver.find_elements(*global_input_selector)
+        logger.info(f"步驟 : 上傳檔案 {file_path}...")
+        self.smart_driver.check_and_dismiss_known_popups()
 
-                if not inputs:
-                    logger.info("未直接找到檔案輸入框，嘗試等待...")
-                    try:
-                        WebDriverWait(driver, 5).until(EC.presence_of_element_located(global_input_selector))
-                        inputs = driver.find_elements(*global_input_selector)
-                    except Exception:
-                        pass
+        time.sleep(4)  # Wait for page JS to stabilize
+        upload_success = False
 
-                if not inputs:
-                    logger.info("仍未找到檔案輸入框，嘗試點擊上傳區域以觸發...")
-                    upload_area_selector = By.XPATH, "//div[contains(@class, 'upload-area')]"
-                    upload_area = WebDriverUtil.find_clickable_element(driver, step_name, *upload_area_selector, "上傳區域")
-                    upload_area.click()
+        for attempt in range(1, 4):
+            logger.info(f"嘗試發送檔案 (第 {attempt} 次)...")
+            inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
+            if not inputs:
+                self.smart_driver.click_step("upload_area", timeout=5)
+                time.sleep(1)
+                inputs = driver.find_elements(By.XPATH, "//input[@type='file']")
 
-                    file_input = WebDriverUtil.find_element(driver, step_name, *global_input_selector, "上傳按鈕 (觸發後)")
-                    file_input.send_keys(file_path)
-                else:
+            if inputs:
+                try:
                     inputs[0].send_keys(file_path)
+                    logger.info("檔案路徑已送出，等待確認上傳進度...")
+                except Exception as e:
+                    logger.warning(f"send_keys 失敗: {e}")
 
-                logger.info("檔案路徑已送出，等待3秒確認上傳進度...")
-                time.sleep(3)
-
-                progress_elements = driver.find_elements(By.CLASS_NAME, "progress-text")
-                complete_elements = driver.find_elements(By.XPATH, "//span[contains(@class, 'success') and contains(text(), '上传完成')]")
-
-                if progress_elements:
-                    logger.info("檢測到上傳進度，上傳成功啟動。")
+            # Check for upload progress, complete label, or form appearance
+            for _ in range(10):
+                time.sleep(1)
+                progress_elements = [p for p in driver.find_elements(By.CLASS_NAME, "progress-text") if p.is_displayed()]
+                complete_elements = [c for c in driver.find_elements(By.XPATH, "//span[contains(@class, 'success') and contains(text(), '上传完成')]") if c.is_displayed()]
+                title_inputs = [t for t in driver.find_elements(By.XPATH, "//input[contains(@placeholder, '标题') or contains(@placeholder, 'Title')]") if t.is_displayed()]
+                if progress_elements or complete_elements or title_inputs:
+                    logger.info("檢測到上傳進度或編輯表單已生成，上傳成功啟動。")
+                    upload_success = True
                     break
-                elif complete_elements:
-                    logger.info("檢測到 '上传完成' 狀態，視為上傳成功。")
-                    break
-                else:
-                    logger.warning("未檢測到上傳進度 (progress-text) 或 完成狀態，重新嘗試上傳...")
 
-            except Exception as e:
-                logger.error(f"上傳過程發生錯誤，準備重試: {e}")
-                time.sleep(3)
+            if upload_success:
+                break
+            logger.warning(f"第 {attempt} 次嘗試未啟動上傳，重新嘗試...")
+            time.sleep(2)
+
+        if not upload_success:
+            raise RuntimeError("無法成功啟動 Bilibili 檔案上傳。")
 
     def _wait_for_upload_complete(self, driver):
-        step_name = "等待上傳完成"
-        while True:
-            try:
-                success_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '上传成功') or contains(text(), 'Upload success') or contains(text(), '上传完成')]")
-                if success_elements:
-                    logger.info("Upload complete (success message found).")
-                    break
+        logger.info("步驟 : 等待影片上傳完成...")
+        start_time = time.time()
+        timeout = 600  # Up to 10 minutes for video upload
 
-                progress_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '%')]")
-                for el in progress_elements:
-                    text = el.text
-                    if re.match(r".*\d+%.*", text) and "100%" not in text:
-                        logger.info(f"Upload progress: {text}")
+        while time.time() - start_time < timeout:
+            # Check for visible upload completion
+            for elem in driver.find_elements(
+                By.XPATH, "//span[contains(@class, 'success') and contains(text(), '上传完成')] | //span[contains(@class, 'text') and contains(text(), '上传完成')]"
+            ):
+                if elem.is_displayed():
+                    logger.info(f"Bilibili 影片上傳完成 ({elem.text.strip()})")
+                    return
+
+            # Check visible progress text
+            for el in driver.find_elements(By.XPATH, "//span[contains(@class, 'progress-text')]"):
+                if el.is_displayed():
+                    text = el.text.strip()
+                    if text:
+                        logger.info(f"Bilibili 上傳進度: {text}")
+                        if "100%" in text:
+                            time.sleep(2)
+                            return
                         break
 
-                time.sleep(1)
-            except Exception:
-                time.sleep(1)
+            time.sleep(2)
+
+        logger.warning("上傳等待超過超時時間，嘗試繼續發佈流程...")
 
     def _set_title(self, driver, title: str):
-        try:
-            step_name = "設定標題"
-            selector = "//input[contains(@placeholder, '标题') or contains(@placeholder, 'Title')]"
-            title_input = WebDriverUtil.find_element(driver, step_name, By.XPATH, selector, "標題輸入框")
-
-            title_input.click()
-            title_input.send_keys(Keys.CONTROL + "a")
-            title_input.send_keys(Keys.BACK_SPACE)
-            title_input.send_keys(title)
-            logger.info("Title set.")
-        except Exception as e:
-            logger.warning(f"Could not set title: {e}")
+        if not title:
+            return
+        logger.info(f"步驟 : 設定標題: {title}")
+        title_elem = self.smart_driver.find_smart_element("title_input", timeout=15)
+        if title_elem:
+            try:
+                title_elem.click()
+                driver.execute_script("arguments[0].value = '';", title_elem)
+                title_elem.send_keys(Keys.CONTROL + "a")
+                title_elem.send_keys(Keys.BACK_SPACE)
+                title_elem.send_keys(title)
+                driver.execute_script(
+                    "arguments[0].dispatchEvent(new Event('input', { bubbles: true })); "
+                    "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
+                    title_elem
+                )
+                time.sleep(0.5)
+                logger.info(f"標題已更新為: '{title_elem.get_attribute('value')}'")
+            except Exception as e:
+                logger.warning(f"輸入標題發生錯誤: {e}")
 
     def _set_description(self, driver, description: str):
+        if not description:
+            return
+        logger.info(f"步驟 : 設定說明內容: {description}")
         try:
-            step_name = "設定說明"
-            selector = "div.ql-editor[contenteditable='true'][data-placeholder*='填写更全面的相关信息']"
-            desc_input = WebDriverUtil.find_element(driver, step_name, By.CSS_SELECTOR, selector, "說明輸入框")
-
-            try:
+            desc_input = self.smart_driver.find_smart_element("description_input", timeout=10)
+            if desc_input:
                 desc_input.click()
-            except Exception:
-                pass
-
-            html_desc = f"<p>{description}</p>"
-            driver.execute_script("arguments[0].innerHTML = arguments[1];", desc_input, html_desc)
-            driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", desc_input)
-            
-            logger.info("Description set.")
+                time.sleep(0.5)
+                desc_input.send_keys(Keys.CONTROL + "a")
+                desc_input.send_keys(Keys.BACK_SPACE)
+                time.sleep(0.5)
+                for line in description.split("\n"):
+                    desc_input.send_keys(line)
+                    desc_input.send_keys(Keys.ENTER)
+                time.sleep(0.5)
+                logger.info("Description set.")
         except Exception as e:
-            logger.warning(f"Could not set description via JS: {e}")
-            try:
-                fallback_selector = "//div[contains(@class, 'ql-editor') and @contenteditable='true']"
-                fallback_input = driver.find_element(By.XPATH, fallback_selector)
-                fallback_input.send_keys(description)
-            except Exception as ex:
-                logger.error(f"Fallback description set failed: {ex}")
+            logger.warning(f"設定說明內容失敗: {e}")
 
     def _select_category(self, driver, category: str):
         if not category:
             category = "游戏"
-            
+        target_category = self.converter.convert(category)
+        logger.info(f"步驟 : 選擇分區: {target_category}...")
         try:
-            step_name = "選擇分區"
-            dropdown = WebDriverUtil.find_clickable_element(driver, step_name, By.CSS_SELECTOR, ".select-controller", "分區下拉選單")
-
-            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", dropdown)
-            time.sleep(0.5)
-
-            dropdown.click()
-            logger.info("Clicked category dropdown.")
+            self.smart_driver.click_step("category_dropdown", timeout=10)
             time.sleep(1)
 
-            target_category = self.converter.convert(category)
-            option_selector = f"//div[contains(@class, 'drop-list-v2-item') and @title='{target_category}'] | //div[contains(@class, 'drop-list-v2-item')]//p[contains(@class, 'item-cont-main') and contains(text(), '{target_category}')]"
-            simple_option_selector = f"//*[text()='{target_category}']"
-
-            target_option = None
-            try:
-                target_option = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, option_selector, f"{target_category} 選項")
-            except Exception:
-                logger.warning(f"Refined selector for '{target_category}' not found, trying simple text search...")
-                try:
-                    target_option = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, simple_option_selector, f"{target_category} 選項")
-                except Exception:
-                    logger.error(f"Could not find '{target_category}' option.")
-
-            if target_option:
-                target_option.click()
-                logger.info(f"Category '{target_category}' selected.")
-
-            time.sleep(0.5)
+            option_selector = (
+                f"//div[contains(@class, 'drop-list-v2-item') and @title='{target_category}'] | "
+                f"//div[contains(@class, 'drop-list-v2-item')]//p[contains(@class, 'item-cont-main') and contains(text(), '{target_category}')] | "
+                f"//*[text()='{target_category}']"
+            )
+            opt = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((By.XPATH, option_selector)))
+            opt.click()
+            logger.info(f"Category '{target_category}' selected.")
         except Exception as e:
             logger.warning(f"Could not select category: {e}")
 
     def _set_tags(self, driver, hashtags: List[str]):
         if not hashtags:
             return
-
+        logger.info("步驟 : 設定標籤...")
         try:
-            step_name = "設定標籤"
-            selector = "//input[contains(@class, 'input-val') and contains(@placeholder, '创建标签')]"
-            tag_input = WebDriverUtil.find_element(driver, step_name, By.XPATH, selector, "標籤輸入框")
-
-            for tag in hashtags:
-                simplified_tag = self.converter.convert(tag)
-                tag_input.send_keys(simplified_tag)
-                logger.info(f"標籤輸入: {simplified_tag}")
-                tag_input.send_keys(Keys.ENTER)
-                time.sleep(0.5)
-                
-            logger.info("Tags set.")
+            tag_input = self.smart_driver.find_smart_element("tag_input", timeout=10)
+            if tag_input:
+                for tag in hashtags:
+                    simplified_tag = self.converter.convert(tag)
+                    tag_input.send_keys(simplified_tag)
+                    logger.info(f"標籤輸入: {simplified_tag}")
+                    tag_input.send_keys(Keys.ENTER)
+                    time.sleep(0.5)
+                logger.info("Tags set.")
         except Exception as e:
             logger.warning(f"Could not set tags: {e}")
 
     def _click_submit(self, driver):
-        step_name = "點擊發佈按鈕"
-        # 放寬 XPath 定位器，不再侷限於 span，以匹配 div、button 等其他標籤包裹文字的可能
-        selector = "//*[contains(text(), '立即投稿') or contains(text(), 'Submit')]"
-        submit_btn = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, selector, "發佈按鈕")
-
-        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", submit_btn)
-        time.sleep(0.5)
-        
-        try:
-            submit_btn.click()
-            logger.info("原生 click() 點擊發佈按鈕成功。")
-            return
-        except Exception as e:
-            logger.warning(f"原生 click() 失敗，嘗試事件分發 (dispatch_click_events): {e}")
-            
-        try:
-            WebDriverUtil.dispatch_click_events(driver, submit_btn)
-            logger.info("事件分發 (dispatch_click_events) 點擊發佈按鈕成功。")
-            return
-        except Exception as e:
-            logger.warning(f"事件分發點擊失敗，嘗試 JS click(): {e}")
-            
-        # 最後一搏，若仍失敗則拋出異常讓流程中斷
-        driver.execute_script("arguments[0].click();", submit_btn)
-        logger.info("JS click() 強制點擊發佈按鈕成功。")
+        logger.info("步驟 : 點擊立即投稿按鈕...")
+        self.smart_driver.check_and_dismiss_known_popups()
+        submit_btn = self.smart_driver.find_smart_element("submit_button", timeout=15)
+        if submit_btn:
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", submit_btn)
+                time.sleep(1)
+                driver.execute_script("arguments[0].click();", submit_btn)
+                logger.info("已點擊立即投稿按鈕。")
+                return
+            except Exception as e:
+                logger.warning(f"腳本點擊投稿按鈕失敗，改用原生點擊: {e}")
+                submit_btn.click()
+                return
+        raise RuntimeError("無法點擊 Bilibili 立即投稿按鈕。")
 
     def _set_creation_declaration(self, driver):
+        logger.info("步驟 : 設定創作聲明...")
         try:
-            step_name = "設定創作聲明"
-            logger.info("嘗試開啟創作聲明下拉選單...")
-            
-            # 定位創作聲明輸入框 / 下拉選單觸發器
-            input_selector = "//input[@placeholder='请选择符合您视频内容的创作声明' or contains(@placeholder, '创作声明')]"
-            declaration_input = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, input_selector, "創作聲明輸入框")
-            
-            driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", declaration_input)
-            time.sleep(0.5)
-            
-            declaration_input.click()
-            logger.info("已點擊創作聲明輸入框。")
-            time.sleep(1)
-            
-            # 定位並點擊 "内容无需标注" 選項
-            option_selector = "//li[contains(@class, 'bcc-option') and .//span[contains(text(), '内容无需标注')]]"
-            fallback_option_selector = "//li[contains(@class, 'bcc-option') and contains(., '内容无需标注')] | //span[contains(text(), '内容无需标注')]"
-            
-            try:
-                option = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, option_selector, "内容无需标注 選項")
-            except Exception:
-                logger.warning("未找到精確的 '内容无需标注' 列表項，嘗試備用選擇器...")
-                option = WebDriverUtil.find_clickable_element(driver, step_name, By.XPATH, fallback_option_selector, "内容无需标注 選項備用")
-                
-            option.click()
-            logger.info("已選擇 '内容无需标注'。")
-            time.sleep(0.5)
+            if self.smart_driver.click_step("creation_declaration", timeout=8):
+                time.sleep(1)
+                self.smart_driver.click_step("creation_declaration_option", timeout=6)
+                logger.info("已選擇 '内容无需标注'。")
         except Exception as e:
             logger.warning(f"設定創作聲明失敗: {e}")
 
     def _wait_for_success(self, driver):
-        step_name = "等待發佈成功"
-        success_selector = "//div[contains(@class, 'step-des') and contains(text(), '稿件投递成功')]"
-        WebDriverUtil.find_element(driver, step_name, By.XPATH, success_selector, "成功訊息")
-        logger.info("Success indicator found.")
-        logger.info("Waiting 2 seconds before closing...")
-        time.sleep(2)
+        logger.info("步驟 : 等待發佈成功狀態或頁面跳轉...")
+        start_time = time.time()
+        timeout = 30  # 30 seconds timeout to prevent infinite hanging
+
+        while time.time() - start_time < timeout:
+            # Check 1: URL redirected to manager or result page
+            current_url = driver.current_url.lower()
+            if "upload-manager" in current_url or "result" in current_url or "success" in current_url:
+                logger.info(f"檢測到成功轉跳網址: {current_url}，投稿確認成功！")
+                time.sleep(3)
+                return
+
+            # Check 2: Success text indicator on screen (must be displayed)
+            success_elems = driver.find_elements(By.XPATH, "//*[contains(text(), '稿件投递成功') or contains(text(), '查看稿件')]")
+            for elem in success_elems:
+                if elem.is_displayed():
+                    logger.info(f"檢測到投稿成功訊息元件: '{elem.text.strip()}'，投稿確認成功！")
+                    time.sleep(3)
+                    return
+
+            # Check 3: Known popups
+            self.smart_driver.check_and_dismiss_known_popups()
+            time.sleep(1.5)
+
+        logger.warning("等待發佈結果達逾時時間，請確認稿件管理後台。")
 
     def _select_cover(self, driver):
+        logger.info("步驟 : 選擇影片推薦封面...")
         try:
-            step_name = "選擇影片封面"
-            logger.info(f"步驟 : {step_name}, 尋找推薦封面...")
+            # Check if a cover is already selected
+            selected_covers = driver.find_elements(By.CSS_SELECTOR, ".img-item-box.img-item-cover-selected")
+            if any(c.is_displayed() for c in selected_covers):
+                logger.info("系統已自動選取推薦封面，無需重複點選。")
+                return
+
             cover_selector = (By.CSS_SELECTOR, ".img-item-box.img-item-cover")
-            
-            # 等待推薦封面加載出來
             cover_items = []
-            for _ in range(5):
-                cover_items = driver.find_elements(*cover_selector)
+            for _ in range(6):
+                cover_items = [c for c in driver.find_elements(*cover_selector) if c.is_displayed()]
                 if cover_items:
                     break
                 time.sleep(1)
-                
+
             if cover_items:
                 driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", cover_items[0])
                 time.sleep(0.5)
-                
-                try:
-                    cover_items[0].click()
-                except Exception:
-                    driver.execute_script("arguments[0].click();", cover_items[0])
-                
-                logger.info("已成功選擇第一張推薦封面。")
-                time.sleep(1)
+                driver.execute_script("arguments[0].click();", cover_items[0])
+                logger.info("已成功選擇推薦封面。")
             else:
-                logger.warning("未找到任何推薦封面項目 (img-item-cover)，跳過封面選擇。")
+                logger.warning("未找到推薦封面項目，跳過封面選擇。")
         except Exception as e:
             logger.warning(f"選擇封面失敗: {e}")

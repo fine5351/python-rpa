@@ -9,6 +9,16 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(parent_dir, ".env")
+    if os.path.exists(env_path):
+        load_dotenv(dotenv_path=env_path)
+    else:
+        load_dotenv()
+except ImportError:
+    pass
+
 from natsort import natsorted
 
 from services.youtube_service import YouTubeService
