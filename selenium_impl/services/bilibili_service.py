@@ -102,6 +102,29 @@ class BilibiliService:
         driver.get("https://member.bilibili.com/platform/upload/video/frame")
         self.smart_driver.check_and_dismiss_known_popups()
 
+        time.sleep(2)
+        current_url = driver.current_url.lower()
+        if "passport.bilibili.com" in current_url or "login" in current_url:
+            print("\n" + "=" * 64)
+            print("🚨 [登入檢查] 檢測到 Bilibili 尚未登入或憑證已失效！")
+            print("瀏覽器已停留在登入頁面，請在開啟的視窗中完成登入（掃碼或帳密）。")
+            print("系統正即時偵測中，登入成功後將自動無縫接續上傳流程...")
+            print("=" * 64 + "\n")
+            logger.warning("檢測到 Bilibili 尚未登入，等待使用者在瀏覽器完成登入中 (最長等待 5 分鐘)...")
+
+            login_start = time.time()
+            while time.time() - login_start < 300:
+                time.sleep(3)
+                current_url = driver.current_url.lower()
+                if "passport.bilibili.com" not in current_url and "login" not in current_url:
+                    print("\n✅ 檢測到 Bilibili 登入成功！繼續執行上傳流程...\n")
+                    logger.info("✅ 檢測到 Bilibili 登入成功，繼續執行上傳流程。")
+                    driver.get("https://member.bilibili.com/platform/upload/video/frame")
+                    time.sleep(3)
+                    break
+            else:
+                raise RuntimeError("Bilibili 登入等待逾時 (5分鐘)，請重新執行。")
+
     def _upload_file(self, driver, file_path: str):
         logger.info(f"步驟 : 上傳檔案 {file_path}...")
         self.smart_driver.check_and_dismiss_known_popups()
