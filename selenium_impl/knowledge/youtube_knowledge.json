@@ -9,6 +9,11 @@
       "locators": [
         {
           "by": "xpath",
+          "value": "//h1[text()='頻道資訊主頁']",
+          "weight": 12
+        },
+        {
+          "by": "xpath",
           "value": "//tp-yt-paper-button[@id='button' and .//div[contains(text(),'Continue') or contains(text(),'繼續')]]",
           "weight": 10
         }
@@ -26,7 +31,7 @@
         {
           "by": "xpath",
           "value": "//ytcp-quick-actions//ytcp-icon-button",
-          "weight": 12
+          "weight": 14
         },
         {
           "by": "xpath",
@@ -63,7 +68,7 @@
         {
           "by": "xpath",
           "value": "//input[@type='file']",
-          "weight": 12
+          "weight": 14
         }
       ]
     },
@@ -84,7 +89,7 @@
         {
           "by": "xpath",
           "value": "//*[@id='textbox' and @contenteditable='true']",
-          "weight": 7
+          "weight": 9
         }
       ]
     },
@@ -95,7 +100,7 @@
         {
           "by": "xpath",
           "value": "//ytcp-social-suggestions-textbox[@id='description-textarea']//div[@id='textbox']",
-          "weight": 12
+          "weight": 14
         },
         {
           "by": "xpath",
@@ -112,7 +117,7 @@
         {
           "by": "xpath",
           "value": "//ytcp-text-dropdown-trigger//div[contains(@class, 'right-container')]",
-          "weight": 12
+          "weight": 14
         },
         {
           "by": "xpath",
@@ -129,7 +134,7 @@
         {
           "by": "xpath",
           "value": "//ytcp-button[.//div[contains(text(), 'Done') or contains(text(), '完成')]]",
-          "weight": 12
+          "weight": 14
         }
       ]
     },
@@ -140,7 +145,7 @@
         {
           "by": "xpath",
           "value": "//tp-yt-paper-radio-button[@name='VIDEO_MADE_FOR_KIDS_NOT_MFK']",
-          "weight": 12
+          "weight": 14
         },
         {
           "by": "xpath",
@@ -156,7 +161,7 @@
         {
           "by": "xpath",
           "value": "//*[@id='next-button']",
-          "weight": 16
+          "weight": 22
         },
         {
           "by": "xpath",
@@ -177,7 +182,7 @@
         {
           "by": "xpath",
           "value": "//tp-yt-paper-radio-button[@name='PUBLIC']",
-          "weight": 12
+          "weight": 14
         },
         {
           "by": "xpath",
@@ -225,7 +230,7 @@
         {
           "by": "xpath",
           "value": "//*[@id='done-button' and .//*[contains(translate(text(), ' ', ''), '發布') or contains(text(), 'Publish') or contains(text(), '儲存') or contains(text(), 'Save')]]",
-          "weight": 12
+          "weight": 14
         },
         {
           "by": "xpath",
@@ -247,7 +252,7 @@
         {
           "by": "xpath",
           "value": "//*[@id='close-button']",
-          "weight": 12
+          "weight": 14
         },
         {
           "by": "xpath",
