@@ -26,6 +26,11 @@ from services.bilibili_service import BilibiliService
 from services.tiktok_service import TikTokService
 from services.rednote_service import rednoteService
 
+try:
+    from selenium_impl.core.trail_tracker import OperationTrailTracker
+except ImportError:
+    from core.trail_tracker import OperationTrailTracker
+
 # Setup basic logging to console
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("RPA_Main")
@@ -88,6 +93,7 @@ def process_multi_platform_upload(file_path: str, description: str, playlist: st
                 logger.error(f"Failed to publish for {p['name']}: {e}", exc_info=True)
                 
         logger.info(f"All platforms processing finished for {title}!")
+        OperationTrailTracker.get_instance().save_to_file()
     
     except Exception as e:
         logger.error(f"Error during multi tab process: {e}", exc_info=True)
@@ -100,6 +106,7 @@ def process_multi_platform_upload(file_path: str, description: str, playlist: st
 
 def main():
     parser = argparse.ArgumentParser(description="Video RPA CLI Tool")
+    parser.add_argument("--show-trail", action="store_true", help="Show pending script consolidation report and exit.")
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # Common arguments
@@ -110,6 +117,7 @@ def main():
     common_parser.add_argument("--desc", type=str, help="Video description.", default="")
     common_parser.add_argument("--tags", type=str, help="Comma-separated hashtags (e.g. tag1,tag2).", default="")
     common_parser.add_argument("--keep-open", action="store_true", help="Keep browser open on failure.")
+    common_parser.add_argument("--show-trail", action="store_true", help="Show pending script consolidation report and exit.")
 
     # YouTube Specific
     parser_yt = subparsers.add_parser("youtube", parents=[common_parser], help="Upload to YouTube")
@@ -134,57 +142,69 @@ def main():
 
     args = parser.parse_args()
 
+    tracker = OperationTrailTracker.get_instance()
+
+    if getattr(args, "show_trail", False):
+        tracker.print_consolidation_log(logger)
+        return
+
     if not args.command:
         parser.print_help()
         return
 
     hashtags = [t.strip() for t in args.tags.split(",")] if args.tags else []
 
-    if args.command == "multi" and args.folder:
-        folder = args.folder
-        if not os.path.isdir(folder):
-            logger.error(f"Invalid folder path: {folder}")
-            sys.exit(1)
+    try:
+        if args.command == "multi" and args.folder:
+            folder = args.folder
+            if not os.path.isdir(folder):
+                logger.error(f"Invalid folder path: {folder}")
+                sys.exit(1)
+                
+            files = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+            files = natsorted(files)
             
-        files = [os.path.join(folder, f) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
-        files = natsorted(files)
-        
-        for f in files:
-            logger.info(f"Processing file in batch: {os.path.basename(f)}")
-            process_multi_platform_upload(f, args.desc, args.playlist, args.category, hashtags, args.keep_open)
-        return
+            for f in files:
+                logger.info(f"Processing file in batch: {os.path.basename(f)}")
+                process_multi_platform_upload(f, args.desc, args.playlist, args.category, hashtags, args.keep_open)
+            return
 
-    if not args.file:
-        logger.error("--file or --folder is required.")
-        sys.exit(1)
+        if not args.file:
+            logger.error("--file or --folder is required.")
+            sys.exit(1)
 
-    file_path = args.file
-    if not os.path.isfile(file_path):
-        logger.error(f"File not found: {file_path}")
-        sys.exit(1)
+        file_path = args.file
+        if not os.path.isfile(file_path):
+            logger.error(f"File not found: {file_path}")
+            sys.exit(1)
 
-    title = args.title if args.title is not None else get_filename_without_extension(file_path)
+        title = args.title if args.title is not None else get_filename_without_extension(file_path)
 
-    if args.command == "youtube":
-        service = YouTubeService()
-        service.upload_video(file_path, title, args.desc, args.playlist, args.visibility, hashtags, args.keep_open)
-    elif args.command == "tiktok":
-        service = TikTokService()
-        service.upload_video(file_path, title, args.desc, args.visibility, hashtags, args.keep_open)
-    elif args.command == "rednote":
-        service = rednoteService()
-        service.upload_video(file_path, title, args.desc, hashtags, args.keep_open)
-    elif args.command == "bilibili":
-        service = BilibiliService()
-        service.upload_video(file_path, title, args.desc, args.category, hashtags, args.keep_open)
-    elif args.command == "multi":
-        process_multi_platform_upload(file_path, args.desc, args.playlist, args.category, hashtags, args.keep_open)
+        if args.command == "youtube":
+            service = YouTubeService()
+            service.upload_video(file_path, title, args.desc, args.playlist, args.visibility, hashtags, args.keep_open)
+        elif args.command == "tiktok":
+            service = TikTokService()
+            service.upload_video(file_path, title, args.desc, args.visibility, hashtags, args.keep_open)
+        elif args.command == "rednote":
+            service = rednoteService()
+            service.upload_video(file_path, title, args.desc, hashtags, args.keep_open)
+        elif args.command == "bilibili":
+            service = BilibiliService()
+            service.upload_video(file_path, title, args.desc, args.category, hashtags, args.keep_open)
+        elif args.command == "multi":
+            process_multi_platform_upload(file_path, args.desc, args.playlist, args.category, hashtags, args.keep_open)
+
+    finally:
+        # 任務結束後輸出 log 表示需要回寫 script 進行固化
+        tracker.print_consolidation_log(logger)
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         logger.info("\n [系統] 接收到中斷指令 (Ctrl+C)，正在安全關閉瀏覽器並結束程式...")
+        OperationTrailTracker.get_instance().print_consolidation_log(logger)
         try:
             sys.exit(0)
         except SystemExit:

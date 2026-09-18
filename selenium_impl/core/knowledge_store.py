@@ -42,6 +42,15 @@ class KnowledgeStore:
             logger.error(f"Failed to save knowledge store to {self.file_path}: {e}")
             return False
 
+    def get_platform(self) -> str:
+        """Returns the platform name associated with this knowledge store."""
+        if "platform" in self.data and self.data["platform"]:
+            return self.data["platform"]
+        basename = os.path.basename(self.file_path)
+        if "_" in basename:
+            return basename.split("_")[0]
+        return os.path.splitext(basename)[0]
+
     def get_step(self, step_id: str) -> Optional[Dict[str, Any]]:
         return self.data.get("steps", {}).get(step_id)
 
@@ -53,8 +62,34 @@ class KnowledgeStore:
         # Return sorted by weight descending
         return sorted(locators, key=lambda x: x.get("weight", 0), reverse=True)
 
-    def record_success(self, step_id: str, locator_value: str) -> None:
-        """Boosts weight of the successful locator to prioritize it in subsequent runs."""
+    def promote_locator_to_primary(self, step_id: str, locator_value: str) -> None:
+        """Promotes the given locator to the 1st position with highest weight,
+        ensuring it will be matched on the first attempt in future runs."""
+        step = self.get_step(step_id)
+        if not step:
+            return
+
+        locators = step.get("locators", [])
+        target_loc = None
+        for loc in locators:
+            if loc.get("value") == locator_value:
+                target_loc = loc
+                break
+
+        if target_loc:
+            current_max_weight = max((l.get("weight", 0) for l in locators), default=10)
+            target_loc["weight"] = max(target_loc.get("weight", 0), current_max_weight + 5)
+            locators.remove(target_loc)
+            locators.insert(0, target_loc)
+            self.save()
+            logger.info(f"Promoted locator to primary for [{step_id}]: {locator_value} (new weight: {target_loc['weight']})")
+
+    def record_success(self, step_id: str, locator_value: str, is_secondary: bool = False) -> None:
+        """Boosts weight of the successful locator. If it was a secondary hit, promotes it directly to primary."""
+        if is_secondary:
+            self.promote_locator_to_primary(step_id, locator_value)
+            return
+
         step = self.get_step(step_id)
         if not step:
             return
@@ -70,8 +105,8 @@ class KnowledgeStore:
         if updated:
             self.save()
 
-    def add_or_update_locator(self, step_id: str, by_type: str, value: str, weight: int = 15) -> None:
-        """Inserts a new learned locator or updates an existing one with high weight."""
+    def add_or_update_locator(self, step_id: str, by_type: str, value: str, weight: Optional[int] = None) -> None:
+        """Inserts a new learned locator or updates an existing one with highest priority."""
         if "steps" not in self.data:
             self.data["steps"] = {}
 
@@ -84,16 +119,21 @@ class KnowledgeStore:
             }
 
         locators = self.data["steps"][step_id].setdefault("locators", [])
+        current_max = max((l.get("weight", 0) for l in locators), default=10)
+        target_weight = weight if weight is not None else current_max + 5
+
         for loc in locators:
             if loc.get("value") == value:
-                loc["weight"] = max(loc.get("weight", 0), weight)
+                loc["weight"] = max(loc.get("weight", 0), target_weight)
+                locators.remove(loc)
+                locators.insert(0, loc)
                 self.save()
                 return
 
-        # Insert new locator with high priority
-        locators.insert(0, {"by": by_type, "value": value, "weight": weight})
+        # Insert new locator with highest priority at position 0
+        locators.insert(0, {"by": by_type, "value": value, "weight": target_weight})
         self.save()
-        logger.info(f"Learned and persisted new locator for [{step_id}]: {by_type}={value}")
+        logger.info(f"Learned and persisted new primary locator for [{step_id}]: {by_type}={value} (weight: {target_weight})")
 
     def add_step(self, step_id: str, name: str, locators: List[Dict[str, Any]],
                  timeout: int = 10, optional: bool = False) -> None:

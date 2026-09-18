@@ -11,11 +11,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 try:
     from selenium_impl.core.hitl_handler import HitlHandler
     from selenium_impl.core.knowledge_store import KnowledgeStore
+    from selenium_impl.core.trail_tracker import OperationTrailTracker
     from selenium_impl.core.vision_analyzer import VisionAnalyzer
     from selenium_impl.utils.webdriver_util import WebDriverUtil
 except ImportError:
     from core.hitl_handler import HitlHandler
     from core.knowledge_store import KnowledgeStore
+    from core.trail_tracker import OperationTrailTracker
     from core.vision_analyzer import VisionAnalyzer
     from utils.webdriver_util import WebDriverUtil
 
@@ -31,6 +33,8 @@ class SmartDriver:
         self.driver = driver
         self.store = knowledge_store
         self.vision = vision_analyzer or VisionAnalyzer()
+        self.platform = self.store.get_platform()
+        self.tracker = OperationTrailTracker.get_instance()
 
     def check_and_dismiss_known_popups(self) -> bool:
         """Checks for known blocking dialogs and dismisses them if present."""
@@ -81,18 +85,38 @@ class SmartDriver:
         logger.info(f"步驟 [{step_name}]: 正在依權重嘗試 {len(locators)} 個候選選擇器 (超時: {effective_timeout}s)...")
         condition = EC.element_to_be_clickable if clickable else EC.presence_of_element_located
 
+        primary_locator = locators[0].get("value") if locators else None
+
         start_time = time.time()
         while time.time() - start_time < effective_timeout:
-            for loc in locators:
+            for idx, loc in enumerate(locators):
                 by_str = loc.get("by", "xpath").lower()
                 by_type = By.XPATH if by_str == "xpath" else (By.ID if by_str == "id" else By.CSS_SELECTOR)
                 val = loc.get("value")
 
                 try:
                     elem = WebDriverWait(self.driver, 1.5).until(condition((by_type, val)))
-                    logger.info(f"✅ 步驟 [{step_name}] 命中選擇器: {val}")
-                    # Reinforce locator weight in knowledge store
-                    self.store.record_success(step_id, val)
+                    if idx == 0:
+                        logger.info(f"✅ 步驟 [{step_name}] 首選選擇器第 1 次命中: {val}")
+                        self.store.record_success(step_id, val, is_secondary=False)
+                    else:
+                        logger.warning(
+                            f"⚠️ 步驟 [{step_name}] 首選未命中，命中第 {idx + 1}/{len(locators)} 個選擇器: {val} (原首選: {primary_locator})"
+                        )
+                        # Record operation trail
+                        self.tracker.record_secondary_hit(
+                            platform=self.platform,
+                            step_id=step_id,
+                            step_name=step_name,
+                            hit_index=idx + 1,
+                            total_candidates=len(locators),
+                            original_primary=primary_locator,
+                            hit_locator=val,
+                            by_type=by_str
+                        )
+                        # Promote to primary in knowledge store for 1st attempt hit next time
+                        self.store.promote_locator_to_primary(step_id, val)
+
                     return elem
                 except Exception:
                     continue
@@ -122,6 +146,16 @@ class SmartDriver:
                             WebDriverUtil.dispatch_click_events(self.driver, btn)
                             logger.info("AI 建議之彈窗關閉按鈕已點擊，重新搜尋目標...")
                             time.sleep(1)
+                            # Record AI popup dismissal trail
+                            self.tracker.record_ai_action(
+                                platform=self.platform,
+                                step_id=step_id,
+                                step_name=step_name,
+                                action_type="AI_POPUP_DISMISS",
+                                suggested_xpath=ai_diagnosis["suggested_xpath"],
+                                original_primary=primary_locator,
+                                details=f"AI 偵測到畫面遮蔽彈窗並點擊排解: {ai_diagnosis.get('description')}"
+                            )
                             # Add to known popups
                             self.store.add_known_popup(
                                 name=ai_diagnosis.get("blocker_name") or f"Popup_{int(time.time())}",
@@ -141,7 +175,18 @@ class SmartDriver:
                             s_xpath = ai_diagnosis["suggested_xpath"]
                             elem = WebDriverWait(self.driver, 3).until(condition((By.XPATH, s_xpath)))
                             logger.info(f"🤖 AI 推論選擇器成功定位: {s_xpath}")
-                            self.store.add_or_update_locator(step_id, "xpath", s_xpath, weight=12)
+                            # Record AI element location trail
+                            self.tracker.record_ai_action(
+                                platform=self.platform,
+                                step_id=step_id,
+                                step_name=step_name,
+                                action_type="AI_ELEMENT_LOCATE",
+                                suggested_xpath=s_xpath,
+                                original_primary=primary_locator,
+                                details=f"AI 視覺推論定位成功 (置信度: {ai_diagnosis.get('confidence')})"
+                            )
+                            # Promote learned locator to primary
+                            self.store.add_or_update_locator(step_id, "xpath", s_xpath)
                             return elem
                         except Exception:
                             pass
@@ -166,16 +211,26 @@ class SmartDriver:
             by_type_str = resolution.get("by", "xpath")
             is_new_step = resolution.get("is_new_step", False)
 
+            # Record HITL intervention trail
+            self.tracker.record_hitl_action(
+                platform=self.platform,
+                step_id=step_id,
+                step_name=step_name,
+                new_xpath=new_val,
+                original_primary=primary_locator,
+                is_new_step=is_new_step
+            )
+
             if is_new_step:
                 new_step_id = f"{step_id}_new_{int(time.time())}"
                 new_step_name = resolution.get("new_step_name", new_step_id)
                 self.store.add_step(
                     step_id=new_step_id,
                     name=new_step_name,
-                    locators=[{"by": by_type_str, "value": new_val, "weight": 15}]
+                    locators=[{"by": by_type_str, "value": new_val, "weight": 20}]
                 )
             else:
-                self.store.add_or_update_locator(step_id, by_type_str, new_val, weight=15)
+                self.store.add_or_update_locator(step_id, by_type_str, new_val)
 
             # Locate element with the newly learned rule
             by_const = By.XPATH if by_type_str == "xpath" else By.CSS_SELECTOR
