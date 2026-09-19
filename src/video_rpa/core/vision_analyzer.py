@@ -1,3 +1,5 @@
+"""Video RPA Gemini Vision AI 視覺畫面分析器."""
+
 import json
 import logging
 import os

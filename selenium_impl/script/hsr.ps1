@@ -1,5 +1,0 @@
-# python ./selenium_impl/main.py multi --folder "F:\Download\4.5-虧成首富,從不要錢開始" --desc "劇情" --tags "崩壞星穹鐵道,honkaistarrail,虧成首富從不要錢開始" --playlist "崩壞:星穹鐵道"
-# python ./selenium_impl/main.py multi --folder "F:\Download\2026-08-03-虛構敘事-構事生意" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,構事生意" --playlist "崩壞:星穹鐵道-高難"
-# python ./selenium_impl/main.py multi --folder "F:\Download\2026-08-17-忘卻之庭-掃除風暴" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,掃除風暴" --playlist "崩壞:星穹鐵道-高難"
-# python ./selenium_impl/main.py multi --folder "F:\Download\2026-08-27-異相仲裁-軍團再臨" --desc "練度展示於結尾" --tags "崩壞星穹鐵道,honkaistarrail,軍團再臨" --playlist "崩壞:星穹鐵道-高難"
-python ./selenium_impl/main.py multi --folder "F:\Download\2026-08-30-末日幻影-仙客天狼" --desc "練度展示於結尾,還是太簡單了" --tags "崩壞星穹鐵道,honkaistarrail,仙客天狼" --playlist "崩壞:星穹鐵道-高難"

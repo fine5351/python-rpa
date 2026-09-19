@@ -1,3 +1,5 @@
+"""Video RPA WebDriver 輔助工具類."""
+
 import logging
 import os
 import subprocess
@@ -15,6 +17,7 @@ from selenium.common.exceptions import TimeoutException, SessionNotCreatedExcept
 
 logger = logging.getLogger(__name__)
 
+
 class WebDriverUtil:
     CHROME_DATA_DIR = "d:/work/workspace/java/rpa/chrome-data"
 
@@ -22,10 +25,9 @@ class WebDriverUtil:
     def _cleanup_chrome(data_dir: str):
         try:
             # Surgical kill: Only target chrome.exe using our specific data directory
-            # We use PowerShell to filter processes by command line arguments
-            norm_dir = data_dir.replace('/', '\\') 
+            norm_dir = data_dir.replace('/', '\\')
             alt_dir = data_dir.replace('\\', '/')
-            
+
             ps_cmd = (
                 f'powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name = \'chrome.exe\'\\" | '
                 f'Where-Object {{ $_.CommandLine -like \'*--user-data-dir={norm_dir}*\' -or $_.CommandLine -like \'*--user-data-dir={alt_dir}*\' }} | '
@@ -33,16 +35,16 @@ class WebDriverUtil:
             )
             logger.info(f"Cleanup: Killing existing Chrome processes using {data_dir}...")
             subprocess.run(ps_cmd, shell=True, capture_output=True)
-            
+
             # Kill any orphaned chromedrivers
             subprocess.run('taskkill /F /IM chromedriver.exe /T', shell=True, capture_output=True)
-            
+
             # Root lock files in the RPA-specific directory
             lock_files = [
                 os.path.join(data_dir, "SingletonLock"),
                 os.path.join(data_dir, "DevToolsActivePort")
             ]
-            
+
             # Profile-specific lock files
             profile_dir = os.path.join(data_dir, "Default")
             if os.path.exists(profile_dir):
@@ -50,7 +52,7 @@ class WebDriverUtil:
                     os.path.join(profile_dir, "LOCK"),
                     os.path.join(profile_dir, "Parent.lock")
                 ])
-            
+
             for f in lock_files:
                 if os.path.exists(f):
                     try:
@@ -58,7 +60,7 @@ class WebDriverUtil:
                         logger.info(f"Cleanup: Removed {os.path.basename(f)} from RPA profile.")
                     except Exception as e:
                         logger.debug(f"Could not remove {f}: {e}")
-            
+
             time.sleep(0.3)
         except Exception as ex:
             logger.error(f"Failed to cleanup Chrome environment: {ex}")
@@ -71,21 +73,21 @@ class WebDriverUtil:
             key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Google\Chrome\BLBeacon")
             version, _ = winreg.QueryValueEx(key, "version")
             return version
-        except:
+        except Exception:
             try:
                 # Fallback to file version
                 import subprocess
                 cmd = r'(Get-Item "C:\Program Files\Google\Chrome\Application\chrome.exe").VersionInfo.FileVersion'
                 res = subprocess.run(["powershell", "-Command", cmd], capture_output=True, text=True)
                 return res.stdout.strip()
-            except:
+            except Exception:
                 return None
 
     @staticmethod
     def initialize_driver() -> webdriver.Chrome:
         # Normalize path for Windows
         data_dir = os.path.normpath(WebDriverUtil.CHROME_DATA_DIR)
-        
+
         # Always cleanup before starting
         WebDriverUtil._cleanup_chrome(data_dir)
 
@@ -104,7 +106,7 @@ class WebDriverUtil:
         options.add_argument("--remote-debugging-port=9222")
         options.add_argument("--disable-extensions")
         options.add_argument("--start-maximized")
-        
+
         # Explicitly set binary location if standard path exists
         chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
         if os.path.exists(chrome_path):
@@ -113,7 +115,7 @@ class WebDriverUtil:
         # Detect version to avoid WDM downloading wrong version
         chrome_version = WebDriverUtil.get_chrome_version()
         logger.info(f"Detected Chrome version: {chrome_version}")
-        
+
         driver_path = ChromeDriverManager(driver_version=chrome_version).install() if chrome_version else ChromeDriverManager().install()
         service = Service(driver_path)
 
@@ -123,14 +125,15 @@ class WebDriverUtil:
             return driver
         except Exception as e:
             logger.warning(f"Chrome Driver start FAILED with persistent profile: {e}")
-            
+
             # Final attempt: Try with a TEMPORARY profile to see if the issue is profile corruption
             temp_dir = os.path.join(os.environ.get('TEMP', 'C:\\temp'), 'chrome_rpa_temp')
-            if not os.path.exists(temp_dir): os.makedirs(temp_dir)
-            
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+
             logger.info(f"Attempting launch with TEMPORARY profile: {temp_dir}")
             options.arguments[0] = f"--user-data-dir={temp_dir}"
-            
+
             try:
                 return webdriver.Chrome(service=service, options=options)
             except Exception as e2:

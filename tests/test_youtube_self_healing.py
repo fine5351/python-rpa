@@ -5,19 +5,17 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Ensure root directory and selenium_impl are in sys.path
+# Ensure src directory is in sys.path
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if root_dir not in sys.path:
-    sys.path.insert(0, root_dir)
-selenium_impl_dir = os.path.join(root_dir, "selenium_impl")
-if selenium_impl_dir not in sys.path:
-    sys.path.insert(0, selenium_impl_dir)
+src_dir = os.path.join(root_dir, "src")
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
 
-from selenium_impl.core.knowledge_store import KnowledgeStore
-from selenium_impl.core.vision_analyzer import VisionAnalyzer
-from selenium_impl.core.hitl_handler import HitlHandler
-from selenium_impl.core.smart_driver import SmartDriver
-from selenium_impl.services.youtube_service import YouTubeService
+from video_rpa.core.knowledge_store import KnowledgeStore
+from video_rpa.core.vision_analyzer import VisionAnalyzer
+from video_rpa.core.hitl_handler import HitlHandler
+from video_rpa.core.smart_driver import SmartDriver
+from video_rpa.services.youtube_service import YouTubeService
 
 
 class TestKnowledgeStore(unittest.TestCase):
@@ -157,13 +155,12 @@ class TestSmartDriver(unittest.TestCase):
         self.mock_driver.find_elements.return_value = [mock_elem]
 
         with patch("selenium.webdriver.support.ui.WebDriverWait.until", return_value=mock_elem):
-            with patch("selenium_impl.core.smart_driver.WebDriverUtil.dispatch_click_events") as mock_click:
+            with patch("video_rpa.core.smart_driver.WebDriverUtil.dispatch_click_events") as mock_click:
                 dismissed = self.smart_driver.check_and_dismiss_known_popups()
                 self.assertTrue(dismissed)
                 mock_click.assert_called_once()
 
     def test_optional_step_returns_none_when_not_found(self):
-        # Optional step should gracefully return None without prompting
         self.mock_vision.is_available.return_value = False
         self.mock_driver.find_elements.return_value = []
         with patch("selenium.webdriver.support.ui.WebDriverWait.until", side_effect=Exception("Timeout")):
@@ -176,7 +173,6 @@ class TestSmartDriver(unittest.TestCase):
         self.mock_driver.current_url = "https://studio.youtube.com"
         self.mock_driver.find_elements.return_value = []
 
-        # Vision AI returns high-confidence suggested xpath
         self.mock_vision.analyze_screen_state.return_value = {
             "status": "ELEMENT_FOUND",
             "confidence": 0.95,
@@ -199,7 +195,6 @@ class TestSmartDriver(unittest.TestCase):
         with patch("selenium.webdriver.support.ui.WebDriverWait.until", side_effect=fake_until):
             elem = self.smart_driver.find_smart_element("upload_btn", custom_timeout=0.2)
             self.assertEqual(elem, mock_elem)
-            # Verify AI learned locator was saved to store
             locators = self.store.get_locators("upload_btn")
             self.assertEqual(locators[0]["value"], "//button[@id='ai_found_btn']")
 
@@ -220,7 +215,7 @@ class TestSmartDriver(unittest.TestCase):
             return method(self.mock_driver)
 
         with patch("selenium.webdriver.support.ui.WebDriverWait.until", side_effect=fake_until):
-            with patch("selenium_impl.core.hitl_handler.HitlHandler.resolve_stuck_step", return_value={
+            with patch("video_rpa.core.smart_driver.HitlHandler.resolve_stuck_step", return_value={
                 "status": "RESOLVED",
                 "by": "xpath",
                 "value": "//button[@id='human_picked_btn']",
@@ -228,7 +223,6 @@ class TestSmartDriver(unittest.TestCase):
             }):
                 elem = self.smart_driver.find_smart_element("upload_btn", custom_timeout=0.2)
                 self.assertEqual(elem, mock_elem)
-                # Verify human picked locator was saved
                 locators = self.store.get_locators("upload_btn")
                 self.assertEqual(locators[0]["value"], "//button[@id='human_picked_btn']")
 
@@ -248,7 +242,6 @@ class TestYouTubeServiceIntegration(unittest.TestCase):
         desc = service._build_description("原神 測試影片", "這是測試說明", ["genshin", "rpa"])
         self.assertIn("#genshin", desc)
         self.assertIn("#rpa", desc)
-        # Verify auto-append hashtag keyword if present
         self.assertIn("這是測試說明", desc)
 
 

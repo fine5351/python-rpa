@@ -1,3 +1,5 @@
+"""Video RPA 智慧自癒驅動器 (SmartDriver) - 結合知識庫、四層自癒與軌跡記錄."""
+
 import logging
 import time
 from typing import Any, Dict, List, Optional
@@ -8,18 +10,11 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-try:
-    from selenium_impl.core.hitl_handler import HitlHandler
-    from selenium_impl.core.knowledge_store import KnowledgeStore
-    from selenium_impl.core.trail_tracker import OperationTrailTracker
-    from selenium_impl.core.vision_analyzer import VisionAnalyzer
-    from selenium_impl.utils.webdriver_util import WebDriverUtil
-except ImportError:
-    from core.hitl_handler import HitlHandler
-    from core.knowledge_store import KnowledgeStore
-    from core.trail_tracker import OperationTrailTracker
-    from core.vision_analyzer import VisionAnalyzer
-    from utils.webdriver_util import WebDriverUtil
+from video_rpa.core.hitl_handler import HitlHandler
+from video_rpa.core.knowledge_store import KnowledgeStore
+from video_rpa.core.trail_tracker import OperationTrailTracker
+from video_rpa.core.vision_analyzer import VisionAnalyzer
+from video_rpa.utils.webdriver_util import WebDriverUtil
 
 logger = logging.getLogger(__name__)
 

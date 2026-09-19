@@ -1,3 +1,5 @@
+"""Video RPA TikTok 上傳服務模組."""
+
 import logging
 import os
 import re
@@ -9,14 +11,12 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from constants.auto_append_hashtag import AutoAppendHashtag
-from selenium_impl.core.knowledge_store import KnowledgeStore
-from selenium_impl.core.smart_driver import SmartDriver
-from selenium_impl.core.vision_analyzer import VisionAnalyzer
-try:
-    from selenium_impl.utils.webdriver_util import WebDriverUtil
-except ImportError:
-    from utils.webdriver_util import WebDriverUtil
+from video_rpa.constants import AutoAppendHashtag
+from video_rpa.core.knowledge_store import KnowledgeStore
+from video_rpa.core.smart_driver import SmartDriver
+from video_rpa.core.vision_analyzer import VisionAnalyzer
+from video_rpa.knowledge import get_knowledge_path
+from video_rpa.utils.webdriver_util import WebDriverUtil
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,7 @@ class TikTokService:
     """TikTok video upload service integrated with SmartDriver self-healing."""
 
     def __init__(self, knowledge_file: Optional[str] = None):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        default_file = os.path.normpath(os.path.join(current_dir, "..", "knowledge", "tiktok_knowledge.json"))
+        default_file = get_knowledge_path("tiktok")
         self.store = KnowledgeStore(knowledge_file or default_file)
         self.vision = VisionAnalyzer()
         self.smart_driver: Optional[SmartDriver] = None

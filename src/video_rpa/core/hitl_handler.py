@@ -1,3 +1,5 @@
+"""Video RPA 人機協同介入 (HITL) 互動式元素拾取器."""
+
 import logging
 import sys
 import time
@@ -120,7 +122,7 @@ class HitlHandler:
         start_time = time.time()
 
         print("\n正在等待操作（可直接在瀏覽器點擊目標，或按 Enter 切換至終端輸入）...")
-        
+
         while time.time() - start_time < timeout_seconds:
             try:
                 selected = driver.execute_script("return window.__rpa_selected_element;")

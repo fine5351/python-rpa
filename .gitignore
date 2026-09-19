@@ -1,14 +1,35 @@
+# Python Environment & Cache
+.venv/
 venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+**/*__pycache__*
+
+# Packaging & Builds
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Testing & Quality
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE & OS
 .idea/
 .vscode/
 .DS_Store
+Thumbs.db
+
+# Chrome & RPA User Data
 chrome*
-**/__pycache__/*
-**/__pycache__
-services/__pycache__/tiktok_service.cpython-313.pyc
-services/__pycache__/youtube_service.cpython-313.pyc
+chrome-data/
+
+# Credentials & Secrets
 credentials.json
 token.json
 *.json.token

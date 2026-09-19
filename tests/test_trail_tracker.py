@@ -6,17 +6,15 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Ensure root directory and selenium_impl are in sys.path
+# Ensure src directory is in sys.path
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if root_dir not in sys.path:
-    sys.path.insert(0, root_dir)
-selenium_impl_dir = os.path.join(root_dir, "selenium_impl")
-if selenium_impl_dir not in sys.path:
-    sys.path.insert(0, selenium_impl_dir)
+src_dir = os.path.join(root_dir, "src")
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
 
-from selenium_impl.core.knowledge_store import KnowledgeStore
-from selenium_impl.core.trail_tracker import OperationTrailTracker, TrailRecord
-from selenium_impl.core.smart_driver import SmartDriver
+from video_rpa.core.knowledge_store import KnowledgeStore
+from video_rpa.core.trail_tracker import OperationTrailTracker, TrailRecord
+from video_rpa.core.smart_driver import SmartDriver
 
 
 class TestTrailTracker(unittest.TestCase):
@@ -91,7 +89,7 @@ class TestTrailTracker(unittest.TestCase):
         self.assertIn("🚨【RPA 固化提醒 / Script Consolidation Required】", report)
         self.assertIn("發佈按鈕", report)
         self.assertIn("//xhs-publish-btn", report)
-        self.assertIn("selenium_impl/knowledge/rednote_knowledge.json", report)
+        self.assertIn("src/video_rpa/knowledge/rednote_knowledge.json", report)
 
     def test_save_trail_to_file(self):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
@@ -199,15 +197,13 @@ class TestSmartDriverSecondaryHit(unittest.TestCase):
         if os.path.exists(self.temp_file.name):
             os.remove(self.temp_file.name)
 
-    @patch("selenium_impl.core.smart_driver.WebDriverWait")
+    @patch("video_rpa.core.smart_driver.WebDriverWait")
     def test_secondary_hit_records_trail_and_promotes(self, mock_wait_cls):
         # Configure WebDriverWait: fail for first locator, succeed for second locator
         mock_wait_inst = MagicMock()
         mock_elem = MagicMock()
 
         def until_side_effect(condition):
-            # Check what locator is being evaluated
-            # First call fails, second call succeeds
             if mock_wait_inst.until.call_count == 1:
                 raise Exception("First locator not found")
             return mock_elem

@@ -1,3 +1,5 @@
+"""Video RPA 知識庫管理器 - 負責步驟定位器與彈窗規則的持久化與動態演化."""
+
 import json
 import logging
 import os

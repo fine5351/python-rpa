@@ -4,7 +4,7 @@
 
 - **語言規範**：一律使用繁體中文（台灣）與使用者溝通及撰寫所有規劃與紀錄文件（例如實作計畫、任務清單、驗收報告、代碼註解等）。
 - **敏感憑證防護**：嚴格禁止主動讀取、寫入、傳輸或洩漏包含 `.env`、`credentials.json`、`token.json`、`token.pickle`、`id_rsa`、`.pem` 等敏感金鑰、憑證與環境變數檔案。
-- **跨平台路徑規範**：專案內部所有配置、規則、文檔與程式碼註解中之檔案引用與路徑標註，**一律使用跨平台相對路徑**（以 POSIX 正斜線 `/` 表示，如 `selenium_impl/main.py`），**嚴格禁止在代碼庫中寫入特定作業系統或本機之絕對路徑**。
+- **跨平台路徑規範**：專案內部所有配置、規則、文檔與程式碼註解中之檔案引用與路徑標註，**一律使用跨平台相對路徑**（以 POSIX 正斜線 `/` 表示，如 `src/video_rpa/cli.py`），**嚴格禁止在代碼庫中寫入特定作業系統或本機之絕對路徑**。
 
 ---
 
@@ -49,7 +49,7 @@
 
 ### 二、 操作軌跡追蹤與自動首位晉升固化機制 (Operation Trail & Consolidation)
 - **非首選命中追蹤**：步驟若由第 2 個（或之後）候選選擇器或 AI 定位命中，必須透過 `OperationTrailTracker` 記錄偏離軌跡。
-- **即時首位晉升回寫**：生效之選擇器必須**立即晉升為 Index 0**，賦予最高權重並即時回寫至知識庫（如 `selenium_impl/knowledge/rednote_knowledge.json`），確保後續執行第 1 次就命中，消除等待延遲。
+- **即時首位晉升回寫**：生效之選擇器必須**立即晉升為 Index 0**，賦予最高權重並即時回寫至知識庫（如 `src/video_rpa/knowledge/rednote_knowledge.json`），確保後續執行第 1 次就命中，消除等待延遲。
 - **任務結束固化報告**：任務終止或完成時，必須於 `finally` 區塊輸出醒目的 `🚨【RPA 固化提醒】`，明確指出偏離步驟、失效原首選、新首選與建議固化之腳本檔案。
 
 ### 三、 Gemini 視覺與 OS 游標自動控制規範 (Gemini Cursor Agent)
@@ -68,7 +68,7 @@
   重點涵蓋 `tests/test_trail_tracker.py` 與 `tests/test_youtube_self_healing.py`。
 - **待固化軌跡檢視**：
   ```bash
-  python ./selenium_impl/main.py --show-trail
+  python -m video_rpa.cli --show-trail
   ```
 
 ---

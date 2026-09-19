@@ -1,3 +1,5 @@
+"""Video RPA 操作軌跡追蹤與固化管理器."""
+
 import json
 import logging
 import os
@@ -25,7 +27,7 @@ class TrailRecord:
         self.total_candidates = total_candidates
         self.by_type = by_type
         self.details = details
-        self.suggested_target = suggested_target or f"selenium_impl/knowledge/{platform}_knowledge.json"
+        self.suggested_target = suggested_target or f"src/video_rpa/knowledge/{platform}_knowledge.json"
         self.timestamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
 
     def to_dict(self) -> Dict[str, Any]:
@@ -83,7 +85,7 @@ class OperationTrailTracker:
             total_candidates=total_candidates,
             by_type=by_type,
             details=f"原首選選擇器失效，命中第 {hit_index}/{total_candidates} 個候選選擇器",
-            suggested_target=f"selenium_impl/knowledge/{platform}_knowledge.json"
+            suggested_target=f"src/video_rpa/knowledge/{platform}_knowledge.json"
         )
         self.records.append(record)
         logger.warning(
@@ -106,7 +108,7 @@ class OperationTrailTracker:
             total_candidates=0,
             by_type="xpath",
             details=details or f"AI Agent 自動分析網頁推論操作: {action_type}",
-            suggested_target=f"selenium_impl/knowledge/{platform}_knowledge.json"
+            suggested_target=f"src/video_rpa/knowledge/{platform}_knowledge.json"
         )
         self.records.append(record)
         logger.warning(
@@ -128,7 +130,7 @@ class OperationTrailTracker:
             total_candidates=0,
             by_type="ai_agent",
             details=f"{operation_description} | {details}" if details else operation_description,
-            suggested_target=f"selenium_impl/knowledge/{platform}_knowledge.json"
+            suggested_target=f"src/video_rpa/knowledge/{platform}_knowledge.json"
         )
         self.records.append(record)
         logger.warning(
@@ -150,7 +152,7 @@ class OperationTrailTracker:
             total_candidates=0,
             by_type="xpath",
             details="使用者透過人機協同拾取器或終端機指定之新選擇器" if not is_new_step else "人機協同新增之中介步驟",
-            suggested_target=f"selenium_impl/knowledge/{platform}_knowledge.json"
+            suggested_target=f"src/video_rpa/knowledge/{platform}_knowledge.json"
         )
         self.records.append(record)
         logger.warning(
